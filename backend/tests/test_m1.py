@@ -11,7 +11,7 @@ def test_health_without_database() -> None:
     with TestClient(app) as client:
         response = client.get("/api/v1/health")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok", "milestone": "M1"}
+        assert response.json() == {"status": "ok", "milestone": "M2"}
 
 
 def test_docs_and_openapi_available() -> None:

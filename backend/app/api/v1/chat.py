@@ -98,6 +98,7 @@ _active: set[str] = set()
 async def send_message(conversation_id: str, body: MessageCreate, db: Database):
     import asyncio
     import json
+    import anyio
     from datetime import datetime, timezone
     from fastapi.responses import StreamingResponse
     from app.core.config import get_settings
@@ -142,7 +143,6 @@ async def send_message(conversation_id: str, body: MessageCreate, db: Database):
                 parts.append(chunk)
                 yield event("delta", {"content": chunk})
             status = "complete"
-            yield event("done", {})
         except ModelError as exc:
             status = "error"
             yield event("error", {"message": str(exc)})
@@ -152,13 +152,16 @@ async def send_message(conversation_id: str, body: MessageCreate, db: Database):
             # 独立 session 保存部分回复，避免流中断时丢失内容。
             from app.db.session import get_session_factory
             try:
-                async with get_session_factory()() as save_db:
-                    saved = await save_db.get(Message, reply.id)
-                    if saved:
-                        saved.content = ''.join(parts)
-                        saved.status = status
-                        await save_db.commit()
+                with anyio.CancelScope(shield=True):
+                    async with get_session_factory()() as save_db:
+                        saved = await save_db.get(Message, reply.id)
+                        if saved:
+                            saved.content = ''.join(parts)
+                            saved.status = status
+                            await save_db.commit()
             finally:
                 _active.discard(conversation_id)
+        if status == "complete":
+            yield event("done", {})
 
     return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

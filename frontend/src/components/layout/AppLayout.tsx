@@ -35,14 +35,14 @@ export function AppLayout() {
         </NavLink>)}
       </nav>
       <div className="side-footer">
-        <div className="deployment-note"><strong>M1 · 开发里程碑</strong><p>课程目录、专题阅读与进度真实持久化。其余模块将分阶段接入。</p></div>
+        <div className="deployment-note"><strong>M2 · 开发里程碑</strong><p>课程、专题阅读与 AI 会话已接入。模型需在服务端配置。</p></div>
         <NavLink className="side-link" to="/settings" onClick={() => setMobileNavOpen(false)}><Settings2 size={18}/> 系统配置</NavLink>
       </div>
     </aside>
     <div className="main-area">
       <header className="topbar">
         <div className="crumb"><button className="mobile-menu" aria-label="打开导航" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>工作台 / <strong>{selected?.label ?? '系统配置'}</strong></div>
-        <div className="top-actions"><span className="status-tag"><span className="dot"/>M1 · 实际 API</span><span className="desktop-only">单实例 · 无平台账号</span><BrainCircuit size={17} color="#6f889c" /></div>
+        <div className="top-actions"><span className="status-tag"><span className="dot"/>M2 · 实际 API</span><span className="desktop-only">单实例 · 无平台账号</span><BrainCircuit size={17} color="#6f889c" /></div>
       </header>
       <main className="page-content"><Outlet /></main>
     </div>

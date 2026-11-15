@@ -31,7 +31,7 @@ app.add_middleware(
 
 @app.get("/api/v1/health", tags=["health"])
 async def health():
-    return {"status": "ok", "milestone": "M1"}
+    return {"status": "ok", "milestone": "M2"}
 
 
 @app.get("/api/v1/health/ready", tags=["health"])
