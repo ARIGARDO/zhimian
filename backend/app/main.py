@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from app.api.v1.chat import router as chat_router
 from app.api.v1.learning import router as learning_router
 from app.core.config import get_settings
 from app.db.session import get_engine
@@ -23,7 +24,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().allowed_origins,
     allow_credentials=False,
-    allow_methods=["GET", "PATCH", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
@@ -44,3 +45,4 @@ async def ready():
 
 
 app.include_router(learning_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")
