@@ -84,3 +84,76 @@ async def delete_conversation(conversation_id: str, db: Database):
 async def list_messages(conversation_id: str, db: Database):
     await conversation_or_404(db, conversation_id)
     return (await db.scalars(select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at, Message.id))).all()
+
+
+class MessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=12000)
+
+
+# 单进程内拒绝同一会话的并发生成；部署时使用单 worker。
+_active: set[str] = set()
+
+
+@router.post('/conversations/{conversation_id}/messages/stream')
+async def send_message(conversation_id: str, body: MessageCreate, db: Database):
+    import asyncio
+    import json
+    from datetime import datetime, timezone
+    from fastapi.responses import StreamingResponse
+    from app.core.config import get_settings
+    from app.llm.client import ModelError, stream_chat
+
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(422, "消息不能为空")
+    item = await conversation_or_404(db, conversation_id)
+    if conversation_id in _active:
+        raise HTTPException(409, "该会话正在生成回复")
+    _active.add(conversation_id)
+    try:
+        user = Message(conversation_id=item.id, role="user", content=content, status="complete", created_at=datetime.now(timezone.utc))
+        reply = Message(conversation_id=item.id, role="assistant", content="", status="streaming", created_at=datetime.now(timezone.utc))
+        db.add_all([user, reply])
+        item.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(reply)
+        history = (await db.scalars(select(Message).where(
+            Message.conversation_id == item.id, Message.id != reply.id,
+            Message.status == "complete").order_by(Message.created_at, Message.id))).all()
+        messages = [{"role": m.role, "content": m.content} for m in history]
+    except BaseException:
+        _active.discard(conversation_id)
+        raise
+
+    def event(kind: str, data: dict) -> str:
+        return f"event: {kind}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    async def generate():
+        parts: list[str] = []
+        status = "cancelled"
+        try:
+            yield event("start", {"id": reply.id})
+            async for chunk in stream_chat(get_settings(), messages):
+                parts.append(chunk)
+                yield event("delta", {"content": chunk})
+            status = "complete"
+            yield event("done", {})
+        except ModelError as exc:
+            status = "error"
+            yield event("error", {"message": str(exc)})
+        except asyncio.CancelledError:
+            raise
+        finally:
+            # 独立 session 保存部分回复，避免流中断时丢失内容。
+            from app.db.session import get_session_factory
+            try:
+                async with get_session_factory()() as save_db:
+                    saved = await save_db.get(Message, reply.id)
+                    if saved:
+                        saved.content = ''.join(parts)
+                        saved.status = status
+                        await save_db.commit()
+            finally:
+                _active.discard(conversation_id)
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
