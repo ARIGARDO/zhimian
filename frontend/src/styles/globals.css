@@ -217,3 +217,17 @@ p { line-height: 1.78; }
   .article-footer { align-items: flex-start; }
   .filter-buttons { width: 100%; }
 }
+
+.chat-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; align-items: start; }
+.chat-history, .chat-main { padding: 20px; }
+.chat-history h3 { margin: 20px 0 10px; }
+.chat-history-row { display: flex; gap: 8px; padding: 8px 0; }
+.chat-history-row button:first-child { flex: 1; text-align: left; overflow-wrap: anywhere; }
+.chat-history-row button[aria-current="true"] { font-weight: bold; color: #147d80; }
+.chat-main { min-height: 480px; display: flex; flex-direction: column; gap: 16px; }
+.chat-messages { flex: 1; max-height: 60vh; overflow-y: auto; }
+.chat-message { padding: 12px; margin-bottom: 12px; border-radius: 10px; background: #f3f7f8; overflow-wrap: anywhere; }
+.chat-message.user { background: #edf6f4; }
+.chat-compose textarea { width: 100%; min-height: 90px; padding: 12px; resize: vertical; border: 1px solid #ccd8dc; border-radius: 8px; }
+.chat-compose > div { display: flex; justify-content: flex-end; margin-top: 8px; }
+@media (max-width: 700px) { .chat-layout { grid-template-columns: 1fr; } }
