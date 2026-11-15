@@ -1,0 +1,5 @@
+# 仅供分别启动 FastAPI / Vite 的本地开发使用：PostgreSQL 只绑定 loopback。
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"

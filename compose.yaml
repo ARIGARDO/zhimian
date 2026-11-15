@@ -1,0 +1,58 @@
+name: zhimian-m1
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: zhimian
+      POSTGRES_DB: zhimian
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zhimian -d zhimian"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+    # 无 ports：数据库不暴露到宿主机公网
+
+  init:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zhimian:${POSTGRES_PASSWORD:-local-dev-only}@postgres:5432/zhimian
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zhimian:${POSTGRES_PASSWORD:-local-dev-only}@postgres:5432/zhimian
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready',timeout=5)"]
+      interval: 10s
+      timeout: 7s
+      retries: 6
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
