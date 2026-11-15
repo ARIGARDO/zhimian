@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, ChevronRight, MessageCircle, Sparkles } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, MessageCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
@@ -21,7 +21,7 @@ export function TopicPage() {
     {current.data && <div className="reader-layout">
       <aside className="surface-card lesson-sidebar"><h4>当前方向 · {current.data.category_label}</h4><nav aria-label="当前方向的章节">{topics.data?.filter(t => t.category === current.data!.category).map(t => <Link className={`lesson-link ${t.id===id?'active':''}`} to={`/learn/topics/${t.id}`} key={t.id}><span className="lesson-dot"/>{t.title}{t.completed && <CheckCircle2 size={14}/>}</Link>)}</nav><p>这里只列出当前方向的专题。其他课程请返回内容选择页。</p></aside>
       <TopicReader key={id} topic={current.data} />
-      <aside className="surface-card assistant-aside"><div className="assistant-header"><div className="row-between"><strong>专题 AI 助手</strong><span className="pill teal">M2 接入</span></div><p>将使用当前专题作为默认问答上下文。</p><div className="scope-chip">当前专题优先 <ChevronRight size={15}/></div></div><div className="assistant-placeholder"><Sparkles size={24}/><p>围绕本章节提问吧。</p><small>真实聊天、RAG 与会话历史将在 M2 / M4 接入。</small></div><div className="assistant-composer"><textarea aria-label="专题AI提问（暂不可用）" placeholder="例如：什么是事件循环？" disabled/><div className="row-between"><span>尚未接入 AI 服务</span><button className="app-button app-button-primary app-button-sm" disabled>发送 <MessageCircle size={14}/></button></div></div></aside>
+      <aside className="surface-card assistant-aside"><div className="assistant-header"><strong>专题 AI 助手</strong><p>围绕当前专题提问，会话与其他专题分开保存。</p><Link className="app-button app-button-primary app-button-sm" to={`/learn/topics/${encodeURIComponent(id)}/chat`}><MessageCircle size={14}/> 进入专题问答</Link></div></aside>
     </div>}
   </>
 }

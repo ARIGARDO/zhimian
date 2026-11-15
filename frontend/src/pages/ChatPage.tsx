@@ -39,7 +39,8 @@ export function ChatPage({ topicId }: { topicId?: string }) {
         id = created.id; setSelected(id); await refresh()
       }
       setInput('')
-      setMessages(prev => [...prev, { id: 'user-temp', role: 'user', content, status: 'complete' }, { id: 'reply-temp', role: 'assistant', content: '', status: 'streaming' }])
+      const replyId = crypto.randomUUID()
+      setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'user', content, status: 'complete' }, { id: replyId, role: 'assistant', content: '', status: 'streaming' }])
       const abort = new AbortController(); controller.current = abort
       const res = await fetch(`/api/v1/conversations/${id}/messages/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }), signal: abort.signal })
       if (!res.ok || !res.body) throw new Error(`发送失败（${res.status}）`)
@@ -54,7 +55,7 @@ export function ChatPage({ topicId }: { topicId?: string }) {
           const kind = frame.match(/^event: (.+)$/m)?.[1]; const data = frame.match(/^data: (.+)$/m)?.[1]
           if (!data) continue
           const payload = JSON.parse(data) as { content?: string; message?: string }
-          if (kind === 'delta') setMessages(prev => prev.map(m => m.id === 'reply-temp' ? { ...m, content: m.content + (payload.content ?? '') } : m))
+          if (kind === 'delta') setMessages(prev => prev.map(m => m.id === replyId ? { ...m, content: m.content + (payload.content ?? '') } : m))
           if (kind === 'error') setError(payload.message ?? '模型请求失败')
         }
       }
