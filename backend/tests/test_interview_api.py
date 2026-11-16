@@ -64,3 +64,19 @@ async def test_api_flow_scope_idempotency_and_visibility(tmp_path):
             assert 'score' not in str(detail) and 'review' not in str(detail) and 'question_plan' not in str(detail)
     finally:
         app.dependency_overrides.clear(); await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_api_internal_errors_are_sanitized(monkeypatch):
+    async def fail(self, interview_id):
+        raise RuntimeError('private diagnostic')
+    monkeypatch.setattr('app.services.interview.InterviewService.detail', fail)
+    async def override():
+        yield None
+    app.dependency_overrides[get_db] = override
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test/api/v1') as c:
+            result=await c.get('/interviews/test')
+            assert result.status_code == 500 and result.json()=={'detail':'服务器内部错误'}
+    finally:
+        app.dependency_overrides.clear()

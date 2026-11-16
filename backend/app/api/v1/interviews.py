@@ -1,16 +1,32 @@
 """面试 HTTP 接口；状态变更统一委托 InterviewService。"""
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.interview import Interview, InterviewPreset, InterviewQuestionBank
-from app.services.interview import InterviewService, recommended_rules
+from app.services.interview import InterviewConflict, InterviewService, recommended_rules
 
-router = APIRouter(tags=['interviews'])
+class InterviewRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        async def safe_handler(request: Request):
+            try:
+                return await handler(request)
+            except (InterviewConflict, HTTPException, RequestValidationError):
+                raise
+            except Exception:
+                return JSONResponse(status_code=500, content={'detail': '服务器内部错误'})
+        return safe_handler
+
+
+router = APIRouter(tags=['interviews'], route_class=InterviewRoute)
 Database = Annotated[AsyncSession, Depends(get_db)]
 Key = Annotated[str, Header(alias='Idempotency-Key', min_length=1, max_length=100, pattern=r'^[A-Za-z0-9._:-]+$')]
 
@@ -44,7 +60,6 @@ def service(db: AsyncSession) -> InterviewService:
 def state_result(result: dict) -> dict:
     # 到期结果已在服务层提交；使用响应对象避免抛异常引起事务回滚。
     if result.get('end_reason'):
-        from fastapi.responses import JSONResponse
         return JSONResponse(status_code=409, content=result)
     return result
 
