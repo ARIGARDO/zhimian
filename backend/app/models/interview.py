@@ -121,4 +121,17 @@ class InterviewOperation(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(100))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(60))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default='0')
     __table_args__ = (UniqueConstraint('interview_id','request_id', name='uq_io_request'), CheckConstraint("status IN ('pending','running','complete','failed')", name='ck_io_status'))
+
+
+class InterviewAIArtifact(Base):
+    __tablename__ = 'interview_ai_artifacts'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    interview_id: Mapped[str] = mapped_column(ForeignKey('interviews.id', ondelete='CASCADE'), nullable=False, index=True)
+    operation_id: Mapped[str] = mapped_column(ForeignKey('interview_operations.id', ondelete='CASCADE'), nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (UniqueConstraint('interview_id', 'kind', 'target_id', name='uq_iai_target'), CheckConstraint("kind IN ('followup','feedback','report')", name='ck_iai_kind'))

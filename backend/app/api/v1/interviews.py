@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.interview import InterviewPreset, InterviewQuestionBank
 from app.services.interview import InterviewConflict, InterviewService, recommended_rules
+from app.services.interview_ai import InterviewAIService
 
 class InterviewRoute(APIRoute):
     def get_route_handler(self):
@@ -117,3 +118,38 @@ async def close_question(interview_id: str, body: CloseRequest, db: Database, ke
 @router.post('/interviews/{interview_id}/terminate')
 async def terminate(interview_id: str, db: Database, key: Key):
     return state_result(await service(db).end(interview_id, key, 'terminated', 'user_terminated'))
+
+
+class AIAnswerRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    answer_id: str = Field(min_length=1, max_length=36)
+
+
+class AIReportRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    type: Literal['full', 'partial']
+
+
+@router.post('/interviews/{interview_id}/ai/followup')
+async def ai_followup(interview_id: str, body: AIAnswerRequest, key: Key):
+    return await InterviewAIService().run(interview_id, key, 'followup', body.answer_id)
+
+
+@router.post('/interviews/{interview_id}/ai/feedback')
+async def ai_feedback(interview_id: str, body: AIAnswerRequest, key: Key):
+    return await InterviewAIService().run(interview_id, key, 'feedback', body.answer_id)
+
+
+@router.post('/interviews/{interview_id}/ai/report')
+async def ai_report(interview_id: str, body: AIReportRequest, key: Key):
+    return await InterviewAIService().run(interview_id, key, 'report', body.type)
+
+
+@router.get('/interviews/{interview_id}/ai/operations/{operation_id}')
+async def ai_operation(interview_id: str, operation_id: str):
+    return await InterviewAIService().get(interview_id, operation_id)
+
+
+@router.get('/interviews/{interview_id}/ai/report')
+async def get_ai_report(interview_id: str):
+    return await InterviewAIService().get_report(interview_id)
