@@ -106,7 +106,7 @@ async def test_time_expiry_boundary_and_evidence(env):
         await call(svc(), 'close_main', cid, f'c{i}')
     q = await call(svc(), 'add_question', cid, 'q3', '问题')
     clock[0] = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=60)
-    assert (await call(svc(), 'answer', cid, 'late', q['id'], '超时')) == {'status': 'completed', 'outcome': 'completed'}
+    assert (await call(svc(), 'answer', cid, 'late', q['id'], '超时')) == {'status': 'completed', 'outcome': 'completed', 'end_reason': 'time_limit'}
     async with factory() as db:
         item = await db.get(Interview, cid)
         assert item.status == 'completed' and item.valid_main_count == 2

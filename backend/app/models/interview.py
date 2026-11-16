@@ -32,6 +32,8 @@ class Interview(Base):
     __tablename__ = 'interviews'
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default='pending', index=True)
+    create_key: Mapped[str | None] = mapped_column(String(100), unique=True)
+    create_hash: Mapped[str | None] = mapped_column(String(64))
     mode: Mapped[str] = mapped_column(String(16), nullable=False)
     preset_id: Mapped[str | None] = mapped_column(ForeignKey('interview_presets.id', ondelete='RESTRICT'))
     preset_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)

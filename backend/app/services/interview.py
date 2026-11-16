@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.interview import Interview, InterviewAnswer, InterviewOperation, InterviewQuestion, InterviewReport
+from app.models.interview import Interview, InterviewAnswer, InterviewOperation, InterviewQuestion, InterviewReport, InterviewPreset, InterviewQuestionBank
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,14 @@ class InterviewConflict(ValueError):
     pass
 
 
+class InterviewNotFound(InterviewConflict):
+    pass
+
+
+class InterviewValidation(InterviewConflict):
+    pass
+
+
 def utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
@@ -74,7 +82,7 @@ class InterviewService:
     async def _lock(self, interview_id: str) -> Interview:
         item = await self.db.scalar(select(Interview).where(Interview.id == interview_id).with_for_update().execution_options(populate_existing=True))
         if item is None:
-            raise InterviewConflict('面试不存在')
+            raise InterviewNotFound('面试不存在')
         if item.config_snapshot.get('_rules') != self._rules_snapshot():
             raise InterviewConflict('面试规则与创建时快照不一致')
         return item
@@ -124,28 +132,87 @@ class InterviewService:
         item.version += 1
         return item.status
 
-    async def create(self, *, mode: str, limit_type: str, main_limit: int | None, duration_seconds: int | None, preset_snapshot: dict, config_snapshot: dict, jd: str | None = None) -> str:
+    def _validate_configuration(self, mode: str, limit_type: str, main_limit: int | None, duration_seconds: int | None, preset_snapshot: dict, config_snapshot: dict, jd: str | None) -> dict:
         if (mode not in {'practice', 'formal'} or not isinstance(preset_snapshot, dict)
                 or not isinstance(config_snapshot, dict) or (jd is not None and not isinstance(jd, str))
                 or len(jd or '') > self.rules.jd_max_chars):
-            raise InterviewConflict('面试模式或 JD 无效')
+            raise InterviewValidation('面试模式或 JD 无效')
         if jd and preset_snapshot.get('kind') != 'role':
-            raise InterviewConflict('仅岗位模式支持 JD')
+            raise InterviewValidation('仅岗位模式支持 JD')
         if limit_type == 'count':
             if main_limit is None or main_limit < self.rules.min_count_questions or duration_seconds is not None:
-                raise InterviewConflict('主问题数量无效')
+                raise InterviewValidation('主问题数量无效')
         elif limit_type == 'time':
             if duration_seconds is None or duration_seconds <= 0 or main_limit is not None:
-                raise InterviewConflict('面试时长无效')
+                raise InterviewValidation('面试时长无效')
         else:
-            raise InterviewConflict('限制类型无效')
+            raise InterviewValidation('限制类型无效')
         if '_rules' in config_snapshot:
-            raise InterviewConflict('配置使用了保留字段')
+            raise InterviewValidation('配置使用了保留字段')
         snapshot = {**config_snapshot, '_rules': self._rules_snapshot()}
+        return snapshot
+
+    async def create(self, *, mode: str, limit_type: str, main_limit: int | None, duration_seconds: int | None, preset_snapshot: dict, config_snapshot: dict, jd: str | None = None) -> str:
+        snapshot = self._validate_configuration(mode, limit_type, main_limit, duration_seconds, preset_snapshot, config_snapshot, jd)
         async with self.db.begin():
             item = Interview(status='pending', mode=mode, limit_type=limit_type, main_limit=main_limit, duration_seconds=duration_seconds, preset_snapshot=preset_snapshot, config_snapshot=snapshot, jd=jd, main_count=0, valid_main_count=0, version=0)
             self.db.add(item); await self.db.flush()
             return item.id
+
+    async def create_from_preset(self, *, key: str, preset_id: str, mode: str, limit_type: str, main_limit: int | None, duration_seconds: int | None, jd: str | None) -> dict:
+        payload = {'preset_id': preset_id, 'mode': mode, 'limit_type': limit_type, 'main_limit': main_limit, 'duration_seconds': duration_seconds, 'jd': jd}
+        digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        if not key or len(key) > 100: raise InterviewValidation('幂等键无效')
+        async with self.db.begin():
+            if self.db.bind.dialect.name == 'postgresql':
+                lock_id = int.from_bytes(hashlib.sha256(('interview-create:' + key).encode()).digest()[:8], 'big', signed=True)
+                await self.db.execute(text('SELECT pg_advisory_xact_lock(:lock_id)'), {'lock_id': lock_id})
+            previous = await self.db.scalar(select(Interview).where(Interview.create_key == key))
+            if previous:
+                if previous.create_hash != digest: raise InterviewConflict('幂等键已用于不同请求')
+                return {'id': previous.id, 'status': 'pending'}
+            preset = await self.db.get(InterviewPreset, preset_id)
+            if not preset or not preset.active: raise InterviewNotFound('预设不存在或不可用')
+            questions = (await self.db.scalars(select(InterviewQuestionBank).where(InterviewQuestionBank.preset_id == preset.id, InterviewQuestionBank.active.is_(True)).order_by(InterviewQuestionBank.id))).all()
+            self._validate_configuration(mode, limit_type, main_limit, duration_seconds, {'kind': preset.kind}, {}, jd)
+            if not questions: raise InterviewConflict('题库暂无可用题目')
+            if limit_type == 'count' and main_limit is not None and main_limit > len(questions): raise InterviewConflict('题库可用主问题不足')
+            preset_snapshot = {'id': preset.id, 'kind': preset.kind, 'name': preset.name, 'version': preset.version}
+            config_snapshot = {'question_plan': [{'id': q.id, 'content': q.content, 'topic': q.topic, 'version': q.version} for q in questions]}
+            snapshot = self._validate_configuration(mode, limit_type, main_limit, duration_seconds, preset_snapshot, config_snapshot, jd)
+            item = Interview(status='pending', create_key=key, create_hash=digest, preset_id=preset.id, mode=mode, limit_type=limit_type, main_limit=main_limit, duration_seconds=duration_seconds, preset_snapshot=preset_snapshot, config_snapshot=snapshot, jd=jd, main_count=0, valid_main_count=0, version=0)
+            self.db.add(item); await self.db.flush()
+            return {'id': item.id, 'status': item.status}
+
+    async def next_question(self, interview_id: str, key: str) -> dict:
+        async with self.db.begin():
+            item = await self._lock(interview_id)
+            digest, prior = await self._previous(item, key, 'next_question', {})
+            now = await self.clock(self.db)
+            expired = await self._expire(item, now) if item.status == 'in_progress' else None
+            if prior is not None: return prior
+            if expired: return self._record(item, key, 'next_question', digest, {'status': item.status, 'outcome': expired, 'end_reason': item.end_reason})
+            self._running(item)
+            if item.main_count:
+                last = await self.db.scalar(select(InterviewQuestion).where(InterviewQuestion.interview_id == item.id, InterviewQuestion.main_number == item.main_count, InterviewQuestion.depth == 0))
+                if not last or not last.closed_at: raise InterviewConflict('当前主问题尚未结束')
+            if item.main_limit is not None and item.main_count >= item.main_limit: raise InterviewConflict('已达到主问题数量限制')
+            plan = item.config_snapshot.get('question_plan', [])
+            if item.main_count >= len(plan): raise InterviewConflict('题库已无可用主问题')
+            source = plan[item.main_count]
+            item.main_count += 1
+            q = InterviewQuestion(interview_id=item.id, main_number=item.main_count, depth=0, position=0, content=source['content'], source_snapshot=source)
+            self.db.add(q); await self.db.flush(); item.version += 1
+            return self._record(item, key, 'next_question', digest, {'id': q.id, 'main_number': q.main_number, 'depth': 0, 'content': q.content})
+
+    async def detail(self, interview_id: str) -> dict:
+        async with self.db.begin():
+            item = await self._lock(interview_id)
+            if item.status == 'in_progress': await self._expire(item, await self.clock(self.db))
+            questions = (await self.db.scalars(select(InterviewQuestion).where(InterviewQuestion.interview_id == item.id).order_by(InterviewQuestion.main_number, InterviewQuestion.position))).all()
+            answers = (await self.db.scalars(select(InterviewAnswer).where(InterviewAnswer.interview_id == item.id))).all()
+            by_question = {a.question_id: {'id': a.id, 'kind': a.kind, 'content': a.content, 'submitted_at': a.submitted_at} for a in answers}
+            return {'id': item.id, 'status': item.status, 'mode': item.mode, 'preset': item.preset_snapshot, 'limit_type': item.limit_type, 'main_limit': item.main_limit, 'duration_seconds': item.duration_seconds, 'started_at': item.started_at, 'deadline_at': item.deadline_at, 'ended_at': item.ended_at, 'end_reason': item.end_reason, 'main_count': item.main_count, 'valid_main_count': item.valid_main_count, 'version': item.version, 'questions': [{'id': q.id, 'main_number': q.main_number, 'depth': q.depth, 'position': q.position, 'content': q.content, 'closed_at': q.closed_at, 'answer': by_question.get(q.id)} for q in questions]}
 
     async def start(self, interview_id: str, key: str) -> dict:
         async with self.db.begin():
@@ -154,7 +221,7 @@ class InterviewService:
             if item.status == 'in_progress':
                 expired = await self._expire(item, await self.clock(self.db))
                 if prior is not None: return prior
-                if expired: return self._record(item, key, 'start', digest, {'status': item.status, 'outcome': expired})
+                if expired: return self._record(item, key, 'start', digest, {'status': item.status, 'outcome': expired, 'end_reason': item.end_reason})
                 return self._record(item, key, 'start', digest, {'status': item.status, 'started_at': utc(item.started_at).isoformat()})
             if prior is not None: return prior
             if item.status != 'pending': raise InterviewConflict('终态不可开始')
@@ -172,7 +239,7 @@ class InterviewService:
             now = await self.clock(self.db)
             expired = await self._expire(item, now) if item.status == 'in_progress' else None
             if prior is not None: return prior
-            if expired: return self._record(item, key, 'question', digest, {'status': item.status, 'outcome': expired})
+            if expired: return self._record(item, key, 'question', digest, {'status': item.status, 'outcome': expired, 'end_reason': item.end_reason})
             self._running(item)
             if not content.strip(): raise InterviewConflict('题目不能为空')
             if parent_id:
@@ -206,7 +273,7 @@ class InterviewService:
 
     async def answer(self, interview_id: str, key: str, question_id: str, content: str = '', skip: bool = False) -> dict:
         if not isinstance(content, str) or not isinstance(skip, bool):
-            raise InterviewConflict('回答格式无效')
+            raise InterviewValidation('回答格式无效')
         payload = {'question_id': question_id, 'content': content, 'skip': skip}
         async with self.db.begin():
             item = await self._lock(interview_id)
@@ -214,15 +281,16 @@ class InterviewService:
             now = await self.clock(self.db)
             expired = await self._expire(item, now) if item.status == 'in_progress' else None
             if prior is not None: return prior
-            if expired: return self._record(item, key, 'answer', digest, {'status': item.status, 'outcome': expired})
+            if expired: return self._record(item, key, 'answer', digest, {'status': item.status, 'outcome': expired, 'end_reason': item.end_reason})
             self._running(item)
             question = await self.db.get(InterviewQuestion, question_id)
-            if not question or question.interview_id != item.id or question.main_number != item.main_count: raise InterviewConflict('问题不属于当前面试')
+            if not question or question.interview_id != item.id: raise InterviewNotFound('问题不存在')
+            if question.main_number != item.main_count: raise InterviewConflict('问题不是当前主问题')
             main = await self.db.scalar(select(InterviewQuestion).where(InterviewQuestion.interview_id == item.id, InterviewQuestion.main_number == question.main_number, InterviewQuestion.depth == 0))
             latest = await self.db.scalar(select(func.max(InterviewQuestion.position)).where(InterviewQuestion.interview_id == item.id, InterviewQuestion.main_number == question.main_number))
             if main.closed_at or question.position != latest: raise InterviewConflict('问题不是当前可回答问题')
             if skip and (item.mode != 'practice' or content): raise InterviewConflict('仅练习模式可跳题')
-            if not skip and (not isinstance(content, str) or len(content) > self.rules.max_answer_chars or not valid_submission(content) or not self.rules.valid_answer(content)): raise InterviewConflict('回答无效')
+            if not skip and (not isinstance(content, str) or len(content) > self.rules.max_answer_chars or not valid_submission(content) or not self.rules.valid_answer(content)): raise InterviewValidation('回答无效')
             if await self.db.scalar(select(InterviewAnswer.id).where(InterviewAnswer.question_id == question.id)): raise InterviewConflict('问题已提交')
             answer = InterviewAnswer(interview_id=item.id, question_id=question.id, kind='skip' if skip else 'answer', content='' if skip else content.strip(), request_id=key, submitted_at=now)
             self.db.add(answer); await self.db.flush()
@@ -230,17 +298,18 @@ class InterviewService:
             item.last_activity_at = now; item.version += 1
             return self._record(item, key, 'answer', digest, {'id': answer.id, 'valid_main_count': item.valid_main_count})
 
-    async def close_main(self, interview_id: str, key: str) -> dict:
+    async def close_main(self, interview_id: str, key: str, question_id: str | None = None) -> dict:
         async with self.db.begin():
             item = await self._lock(interview_id)
-            digest, prior = await self._previous(item, key, 'close_main', {})
+            digest, prior = await self._previous(item, key, 'close_main', {'question_id': question_id} if question_id is not None else {})
             now = await self.clock(self.db)
             expired = await self._expire(item, now) if item.status == 'in_progress' else None
             if prior is not None: return prior
-            if expired: return self._record(item, key, 'close_main', digest, {'status': item.status, 'outcome': expired})
+            if expired: return self._record(item, key, 'close_main', digest, {'status': item.status, 'outcome': expired, 'end_reason': item.end_reason})
             self._running(item)
             qs = (await self.db.scalars(select(InterviewQuestion).where(InterviewQuestion.interview_id == item.id, InterviewQuestion.main_number == item.main_count).order_by(InterviewQuestion.depth))).all()
             if not qs or qs[0].closed_at: raise InterviewConflict('主问题不存在或已结束')
+            if question_id is not None and qs[0].id != question_id: raise InterviewConflict('主问题已变更')
             count = await self.db.scalar(select(func.count(InterviewAnswer.id)).where(InterviewAnswer.question_id.in_([q.id for q in qs])))
             if count != len(qs): raise InterviewConflict('存在未处理问题')
             qs[0].closed_at = now; item.version += 1
@@ -277,7 +346,7 @@ class InterviewService:
             digest, prior = await self._previous(item, key, 'end', payload)
             expired = await self._expire(item, await self.clock(self.db)) if item.status == 'in_progress' else None
             if prior is not None: return prior
-            if expired: return self._record(item, key, 'end', digest, {'status': item.status, 'outcome': expired})
+            if expired: return self._record(item, key, 'end', digest, {'status': item.status, 'outcome': expired, 'end_reason': item.end_reason})
             if item.status in TERMINAL:
                 if item.status != target: raise InterviewConflict('终态不可变更')
                 return self._record(item, key, 'end', digest, {'status': item.status})
