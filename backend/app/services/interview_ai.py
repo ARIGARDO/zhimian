@@ -30,8 +30,12 @@ class Followup(StrictModel):
     @field_validator('question')
     @classmethod
     def nonempty(cls, value):
-        if not value.strip(): raise ValueError('空问题')
-        return value.strip()
+        value = value.strip()
+        if not value or not value.endswith(('?', '？')):
+            raise ValueError('追问必须是问句')
+        if re.search(r'评分|得分|分数|打分|参考答案|正确答案|你的回答.{0,12}(?:正确|错误|优秀|不足|很好|不对)', value):
+            raise ValueError('追问不得包含评价或答案')
+        return value
 
 
 class Feedback(StrictModel):
@@ -79,7 +83,7 @@ def parse_result(kind: str, raw: str, valid_ids: set[str]) -> dict:
         if kind == 'partial':
             # 宁可拒绝重试，也不允许未完成报告出现数字评分。
             text = result['summary'] + ''.join(item['review'] for item in result['items'])
-            if any(c.isdigit() for c in text) or re.search(r'[零〇一二三四五六七八九十百两]+\s*(?:分|成|星|[/／]\s*[零〇一二三四五六七八九十百两]+)', text):
+            if any(c.isdigit() for c in text) or re.search(r'评分|得分|分数|打分|评级|百分之|[零〇一二三四五六七八九十百两]+\s*(?:分|成|星|[/／]\s*[零〇一二三四五六七八九十百两]+)', text):
                 raise ValueError('部分复盘不得包含数字或数值评分')
         return result
     except (ValueError, TypeError, ValidationError) as exc:

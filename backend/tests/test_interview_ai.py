@@ -187,3 +187,12 @@ async def test_http_feedback_and_formal_visibility(env, monkeypatch):
             assert (await client.post(f'/interviews/{formal}/ai/feedback',json={'answer_id':fa['id']},headers={'Idempotency-Key':'formal'})).status_code==409
             assert (await client.get(f'/interviews/{formal}/ai/report')).status_code==409
     finally: app.dependency_overrides.clear()
+
+
+def test_reject_scored_partial_and_evaluative_followup():
+    with pytest.raises(ModelError):
+        parse_result('partial',json.dumps({'summary':'百分之八十','items':[{'answer_id':'a','review':'建议复习'}]},ensure_ascii=False),{'a'})
+    with pytest.raises(ModelError):
+        parse_result('followup',json.dumps({'question':'你的回答不对，请给出原因？'},ensure_ascii=False),set())
+    with pytest.raises(ModelError):
+        parse_result('followup',json.dumps({'question':'先说明原理。'},ensure_ascii=False),set())
