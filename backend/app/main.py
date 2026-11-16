@@ -4,6 +4,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from fastapi.responses import JSONResponse
+from app.api.v1.interviews import router as interview_router
+from app.services.interview import InterviewConflict, InterviewNotFound, InterviewValidation
 from app.api.v1.chat import router as chat_router
 from app.api.v1.learning import router as learning_router
 from app.core.config import get_settings
@@ -25,7 +28,7 @@ app.add_middleware(
     allow_origins=get_settings().allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Idempotency-Key"],
 )
 
 
@@ -44,5 +47,12 @@ async def ready():
     return {"status": "ready"}
 
 
+@app.exception_handler(InterviewConflict)
+async def interview_error(request, exc):
+    status = 404 if isinstance(exc, InterviewNotFound) else 422 if isinstance(exc, InterviewValidation) else 409
+    return JSONResponse(status_code=status, content={'detail': str(exc)})
+
+
+app.include_router(interview_router, prefix="/api/v1")
 app.include_router(learning_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
