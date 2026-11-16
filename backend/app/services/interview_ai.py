@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import re
+import unicodedata
 from datetime import timedelta
 from uuid import uuid4
 
@@ -83,7 +84,7 @@ def parse_result(kind: str, raw: str, valid_ids: set[str]) -> dict:
         if kind == 'partial':
             # 宁可拒绝重试，也不允许未完成报告出现数字评分。
             text = result['summary'] + ''.join(item['review'] for item in result['items'])
-            if any(c.isdigit() for c in text) or re.search(r'评分|得分|分数|打分|评级|百分之|[零〇一二三四五六七八九十百两]+\s*(?:分|成|星|[/／]\s*[零〇一二三四五六七八九十百两]+)', text):
+            if any(unicodedata.category(c).startswith('N') for c in text) or re.search(r'评分|得分|分数|打分|评级|百分之|[零〇一二三四五六七八九十百两]+\s*(?:分|成|星|[/／]\s*[零〇一二三四五六七八九十百两]+)', text):
                 raise ValueError('部分复盘不得包含数字或数值评分')
         return result
     except (ValueError, TypeError, ValidationError) as exc:

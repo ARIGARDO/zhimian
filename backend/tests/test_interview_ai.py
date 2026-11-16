@@ -196,3 +196,8 @@ def test_reject_scored_partial_and_evaluative_followup():
         parse_result('followup',json.dumps({'question':'你的回答不对，请给出原因？'},ensure_ascii=False),set())
     with pytest.raises(ModelError):
         parse_result('followup',json.dumps({'question':'先说明原理。'},ensure_ascii=False),set())
+
+
+def test_partial_rejects_unicode_numeric_scores():
+    with pytest.raises(ModelError):
+        parse_result('partial',json.dumps({'summary':'Ⅷ 分','items':[{'answer_id':'a','review':'继续练习'}]},ensure_ascii=False),{'a'})
