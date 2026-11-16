@@ -19,6 +19,7 @@ class InterviewRules:
     inactivity_seconds: int
     jd_max_chars: int
     valid_answer: Callable[[str], bool]
+    validity_policy_id: str = "nonempty-v1"
 
 
 def recommended_rules() -> InterviewRules:
@@ -49,10 +50,17 @@ class InterviewService:
         if min(rules.min_valid_main, rules.min_count_questions, rules.inactivity_seconds, rules.jd_max_chars) <= 0:
             raise ValueError('规则值必须为正数')
 
+    def _rules_snapshot(self) -> dict:
+        return {'min_valid_main': self.rules.min_valid_main, 'min_count_questions': self.rules.min_count_questions,
+                'inactivity_seconds': self.rules.inactivity_seconds, 'jd_max_chars': self.rules.jd_max_chars,
+                'validity_policy_id': self.rules.validity_policy_id}
+
     async def _lock(self, interview_id: str) -> Interview:
         item = await self.db.scalar(select(Interview).where(Interview.id == interview_id).with_for_update())
         if item is None:
             raise InterviewConflict('面试不存在')
+        if item.config_snapshot.get('_rules') != self._rules_snapshot():
+            raise InterviewConflict('面试规则与创建时快照不一致')
         return item
 
     async def _previous(self, item: Interview, key: str, kind: str, payload: dict) -> tuple[str, dict | None]:
@@ -96,8 +104,11 @@ class InterviewService:
                 raise InterviewConflict('面试时长无效')
         else:
             raise InterviewConflict('限制类型无效')
+        if '_rules' in config_snapshot:
+            raise InterviewConflict('配置使用了保留字段')
+        snapshot = {**config_snapshot, '_rules': self._rules_snapshot()}
         async with self.db.begin():
-            item = Interview(status='pending', mode=mode, limit_type=limit_type, main_limit=main_limit, duration_seconds=duration_seconds, preset_snapshot=preset_snapshot, config_snapshot=config_snapshot, jd=jd, main_count=0, valid_main_count=0, version=0)
+            item = Interview(status='pending', mode=mode, limit_type=limit_type, main_limit=main_limit, duration_seconds=duration_seconds, preset_snapshot=preset_snapshot, config_snapshot=snapshot, jd=jd, main_count=0, valid_main_count=0, version=0)
             self.db.add(item); await self.db.flush()
             return item.id
 

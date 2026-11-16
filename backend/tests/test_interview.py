@@ -141,3 +141,33 @@ async def test_count_limit_with_insufficient_evidence(env):
         assert item.main_count == 3 and item.valid_main_count == 0
     with pytest.raises(InterviewConflict): await call(svc(), 'add_question', cid, 'extra', '超额题')
     with pytest.raises(InterviewConflict): await call(svc(), 'add_report_placeholder', cid, 'full')
+
+
+@pytest.mark.asyncio
+async def test_config_validation_and_just_before_deadline(env):
+    factory, clock, svc = env
+    with pytest.raises(InterviewConflict):
+        async with svc().db as db:
+            await InterviewService(db, recommended_rules()).create(mode='practice', limit_type='count', main_limit=2, duration_seconds=None, preset_snapshot={}, config_snapshot={})
+    with pytest.raises(InterviewConflict):
+        async with svc().db as db:
+            await InterviewService(db, recommended_rules()).create(mode='practice', limit_type='time', main_limit=None, duration_seconds=60, preset_snapshot={}, config_snapshot={}, jd='x' * 5001)
+    cid = await create(svc(), limit_type='time')
+    await call(svc(), 'start', cid, 's')
+    q = await call(svc(), 'add_question', cid, 'q', '边界题')
+    clock[0] += timedelta(seconds=59, milliseconds=999)
+    assert (await call(svc(), 'answer', cid, 'a', q['id'], '及时提交'))['valid_main_count'] == 1
+    clock[0] += timedelta(milliseconds=1)
+    assert (await call(svc(), 'check_expiry', cid))['outcome'] == 'expired_insufficient_evidence'
+
+
+@pytest.mark.asyncio
+async def test_rule_snapshot_prevents_mid_session_changes(env):
+    from dataclasses import replace
+    factory, clock, svc = env
+    cid = await create(svc())
+    async with factory() as db:
+        service = InterviewService(db, replace(recommended_rules(), min_valid_main=1))
+        with pytest.raises(InterviewConflict, match='快照'):
+            await service.start(cid, 'start')
+    assert (await call(svc(), 'start', cid, 'start'))['status'] == 'in_progress'
