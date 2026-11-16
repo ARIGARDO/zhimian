@@ -31,7 +31,7 @@ async def env(tmp_path):
 
 
 def model_result(data):
-    async def model(settings,messages):
+    async def model(settings,messages,*,max_tokens=None):
         yield json.dumps(data,ensure_ascii=False)
     return model
 
@@ -57,7 +57,7 @@ async def test_followup_retry_idempotency_and_limit(env):
 @pytest.mark.asyncio
 async def test_invalid_json_failure_retry_and_lease_recovery(env):
     factory,call,make=env; cid,q,a=await make()
-    async def bad(settings,messages): yield 'not-json'
+    async def bad(settings,messages,*,max_tokens=None): yield 'not-json'
     ai=InterviewAIService(factory,bad)
     failed=await ai.run(cid,'feedback','feedback',a['id'])
     assert failed['status']=='failed' and '格式' in failed['error']
@@ -80,7 +80,7 @@ async def test_invalid_json_failure_retry_and_lease_recovery(env):
 async def test_state_change_during_model_rejects_result(env):
     factory,call,make=env; cid,q,a=await make()
     started=asyncio.Event(); resume=asyncio.Event()
-    async def slow(settings,messages):
+    async def slow(settings,messages,*,max_tokens=None):
         started.set(); await resume.wait(); yield '{"question":"继续？"}'
     ai=InterviewAIService(factory,slow)
     task=asyncio.create_task(ai.run(cid,'follow','followup',a['id']))
@@ -154,7 +154,7 @@ async def test_running_claim_race_expired_owner_and_timeout(env):
 @pytest.mark.asyncio
 async def test_model_failure_retains_answer_and_retry(env):
     factory,call,make=env; cid,q,a=await make()
-    async def broken(settings,messages):
+    async def broken(settings,messages,*,max_tokens=None):
         yield '{'
         raise ModelError('模型服务请求超时')
     failed=await InterviewAIService(factory,broken).run(cid,'feedback','feedback',a['id'])
@@ -164,6 +164,23 @@ async def test_model_failure_retains_answer_and_retry(env):
         assert (await db.get(InterviewAnswer,a['id'])).content=='不知道'
     good=InterviewAIService(factory,model_result({'feedback':'请说明思路'}))
     assert (await good.run(cid,'feedback','feedback',a['id']))['status']=='complete'
+
+
+@pytest.mark.asyncio
+async def test_model_timeout_and_output_limit(env, monkeypatch):
+    from types import SimpleNamespace
+    factory,call,make=env; cid,q,a=await make(); received=[]
+    async with factory() as db: before=(await db.get(Interview,cid)).last_activity_at
+    monkeypatch.setattr('app.services.interview_ai.get_settings', lambda: SimpleNamespace(
+        model_ai_max_attempts=3, model_ai_max_duration_seconds=0.01, model_ai_max_output_tokens=256))
+    async def slow(settings,messages,*,max_tokens=None):
+        received.append(max_tokens)
+        await asyncio.sleep(1)
+        yield '{}'
+    result=await InterviewAIService(factory,slow).run(cid,'timeout','feedback',a['id'])
+    assert result['status']=='failed' and '超时' in result['error']
+    assert received==[256]
+    async with factory() as db: assert (await db.get(Interview,cid)).last_activity_at==before
 
 
 @pytest.mark.asyncio
@@ -212,7 +229,7 @@ async def test_model_result_after_deadline_is_discarded(env):
     q=await call('add_question',cid,'q','问题')
     a=await call('answer',cid,'a',q['id'],'有效答案')
     started=asyncio.Event(); resume=asyncio.Event()
-    async def slow(settings,messages):
+    async def slow(settings,messages,*,max_tokens=None):
         started.set(); await resume.wait(); yield '{"question":"为什么？"}'
     task=asyncio.create_task(InterviewAIService(factory,slow).run(cid,'follow','followup',a['id']))
     await started.wait()
@@ -225,3 +242,109 @@ async def test_model_result_after_deadline_is_discarded(env):
     async with factory() as db:
         assert (await db.get(Interview,cid)).status=='terminated'
         assert len((await db.scalars(select(InterviewAIArtifact).where(InterviewAIArtifact.interview_id==cid))).all())==0
+
+
+@pytest.mark.parametrize('text', [
+    'Python 3.12 与 FastAPI 0.115 的用法可进一步核对。',
+    'HTTP 404 可检查路由，耗时约 80ms。',
+    '可以复习 Python 3.12 分析与 HTTP/1.1。',
+])
+def test_partial_allows_technical_numbers(text):
+    raw=json.dumps({'summary':text,'items':[{'answer_id':'a','review':'建议继续练习'}]},ensure_ascii=False)
+    assert parse_result('partial',raw,{'a'})['summary']==text
+
+
+@pytest.mark.parametrize('text', ['得分 80', '九十分', '评分：85/100', '百分之八十', '等级 B', '表现优秀', 'Ⅷ 分', 'score: 8/10'])
+def test_partial_rejects_scoring_expressions(text):
+    raw=json.dumps({'summary':text,'items':[{'answer_id':'a','review':'建议继续练习'}]},ensure_ascii=False)
+    with pytest.raises(ModelError): parse_result('partial',raw,{'a'})
+
+
+@pytest.mark.asyncio
+async def test_model_success_failure_do_not_extend_user_activity_and_retry_budget(env):
+    factory,call,make=env; cid,q,a=await make()
+    async with factory() as db: before=(await db.get(Interview,cid)).last_activity_at
+    async def bad(settings,messages,*,max_tokens=None): yield 'bad-json'
+    ai=InterviewAIService(factory,bad)
+    for key in ('try1','try2','try3'):
+        assert (await ai.run(cid,key,'feedback',a['id']))['status']=='failed'
+    with pytest.raises(InterviewConflict,match='最大尝试次数'):
+        await ai.run(cid,'new-key','feedback',a['id'])
+    async with factory() as db:
+        item=await db.get(Interview,cid)
+        assert item.last_activity_at==before and item.model_grace_until is None
+    cid2,q2,a2=await make()
+    async with factory() as db: before=(await db.get(Interview,cid2)).last_activity_at
+    good=InterviewAIService(factory,model_result({'feedback':'说明思路'}))
+    assert (await good.run(cid2,'ok','feedback',a2['id']))['status']=='complete'
+    async with factory() as db:
+        item=await db.get(Interview,cid2)
+        assert item.last_activity_at==before and item.model_grace_until is None
+
+
+@pytest.mark.asyncio
+async def test_running_model_one_time_grace_does_not_repeat(env, monkeypatch):
+    from app.services.interview import utc
+    factory,call,make=env; cid,q,a=await make()
+    base=datetime.now(timezone.utc)
+    current=[base]
+    async def fake_now(db): return current[0]
+    monkeypatch.setattr('app.services.interview_ai.database_now',fake_now)
+    async with factory() as db:
+        async with db.begin():
+            item=await db.get(Interview,cid); item.last_activity_at=base
+    ai=InterviewAIService(factory,model_result({'feedback':'建议复习'}))
+    first=await ai.claim(cid,'first','feedback',a['id'])
+    current[0]=base+timedelta(minutes=31)
+    async with factory() as db:
+        async with db.begin():
+            op=await db.get(InterviewOperation,first['id']); op.lease_until=current[0]+timedelta(seconds=90)
+    async with factory() as db:
+        service=InterviewService(db,recommended_rules(),fake_now)
+        assert not await service.check_inactivity(cid)
+    await ai.fail(cid,first['id'],first['owner'],'model_error')
+    async with factory() as db:
+        item=await db.get(Interview,cid)
+        assert utc(item.last_activity_at)==base and utc(item.model_grace_until)==current[0]+timedelta(seconds=60)
+    current[0]+=timedelta(seconds=30)
+    retry=await ai.claim(cid,'second','feedback',a['id'])
+    await ai.fail(cid,retry['id'],retry['owner'],'model_error')
+    async with factory() as db:
+        assert utc((await db.get(Interview,cid)).model_grace_until)==base+timedelta(minutes=32)
+    current[0]+=timedelta(seconds=31)
+    async with factory() as db:
+        assert await InterviewService(db,recommended_rules(),fake_now).check_inactivity(cid)
+    async with factory() as db: assert (await db.get(Interview,cid)).status=='interrupted'
+
+
+@pytest.mark.asyncio
+async def test_crashed_lease_grace_from_expiry_not_poll_time(env):
+    from app.services.interview import utc
+    factory,call,make=env; cid,q,a=await make(); base=datetime.now(timezone.utc)
+    async with factory() as db:
+        async with db.begin():
+            item=await db.get(Interview,cid); item.last_activity_at=base
+            db.add(InterviewOperation(interview_id=cid,kind='ai_followup',request_id='crash',request_hash='z'*64,status='running',lease_until=base+timedelta(minutes=30,seconds=10)))
+    now=[base+timedelta(minutes=30,seconds=20)]
+    async def clock(db): return now[0]
+    async with factory() as db: assert not await InterviewService(db,recommended_rules(),clock).check_inactivity(cid)
+    async with factory() as db: assert utc((await db.get(Interview,cid)).model_grace_until)==base+timedelta(minutes=31,seconds=10)
+    now[0]=base+timedelta(minutes=31,seconds=11)
+    async with factory() as db: assert await InterviewService(db,recommended_rules(),clock).check_inactivity(cid)
+
+
+@pytest.mark.asyncio
+async def test_poll_expired_lease_preserves_bounded_grace(env, monkeypatch):
+    from app.services.interview import utc
+    factory,call,make=env; cid,q,a=await make(); base=datetime.now(timezone.utc)
+    async def fake_now(db): return base+timedelta(minutes=30,seconds=20)
+    monkeypatch.setattr('app.services.interview_ai.database_now',fake_now)
+    async with factory() as db:
+        async with db.begin():
+            item=await db.get(Interview,cid); item.last_activity_at=base
+            op=InterviewOperation(interview_id=cid,kind='ai_feedback',request_id='stale',request_hash='x'*64,status='running',lease_until=base+timedelta(minutes=30,seconds=10))
+            db.add(op); await db.flush(); op_id=op.id
+    assert (await InterviewAIService(factory).get(cid,op_id))['status']=='failed'
+    async with factory() as db:
+        item=await db.get(Interview,cid)
+        assert utc(item.model_grace_until)==base+timedelta(minutes=31,seconds=10)

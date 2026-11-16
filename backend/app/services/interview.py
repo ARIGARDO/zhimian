@@ -41,6 +41,7 @@ def recommended_rules() -> InterviewRules:
 
 
 MAX_FOLLOWUPS = 2  # 已确认的每道主问题追问上限。
+MODEL_RECOVERY_GRACE_SECONDS = 60  # 同一次用户活动最多一次模型恢复宽限。
 TERMINAL = {'completed', 'terminated', 'interrupted'}
 
 
@@ -116,6 +117,13 @@ class InterviewService:
             .join(InterviewAnswer, InterviewAnswer.question_id == InterviewQuestion.id)
             .where(InterviewAnswer.interview_id == item.id, InterviewAnswer.kind == 'answer', InterviewQuestion.depth == 0))
 
+    def model_finished(self, item: Interview, finished_at: datetime) -> None:
+        # 只在模型跨越用户活动期限时创建一次宽限，不改用户活动时间。
+        if (item.status == 'in_progress' and item.limit_type == 'count' and item.last_activity_at
+                and finished_at >= utc(item.last_activity_at) + timedelta(seconds=self.rules.inactivity_seconds)
+                and item.model_grace_until is None):
+            item.model_grace_until = finished_at + timedelta(seconds=MODEL_RECOVERY_GRACE_SECONDS)
+
     async def _expire(self, item: Interview, now: datetime) -> str | None:
         if item.limit_type == 'time' and item.deadline_at and now >= utc(item.deadline_at):
             item.valid_main_count = await self._count_valid_main(item)
@@ -124,11 +132,21 @@ class InterviewService:
             item.ended_at = now
             item.end_reason = 'time_limit' if enough else 'time_limit_insufficient_evidence'
         elif item.limit_type == 'count' and item.last_activity_at and now >= utc(item.last_activity_at) + timedelta(seconds=self.rules.inactivity_seconds):
-            # 未过期的执行租约（或无租约的运行中操作）期间不认定无活动。
+            deadline = utc(item.last_activity_at) + timedelta(seconds=self.rules.inactivity_seconds)
             active = await self.db.scalar(select(InterviewOperation.id).where(
                 InterviewOperation.interview_id == item.id, InterviewOperation.status == 'running',
-                (InterviewOperation.lease_until.is_(None) | (InterviewOperation.lease_until > now))).limit(1))
+                InterviewOperation.lease_until.is_not(None), InterviewOperation.lease_until > now).limit(1))
             if active:
+                return None
+            # 崩溃后的宽限从租约截止起算，而非从下一次访问起算。
+            if item.model_grace_until is None:
+                expired_lease = await self.db.scalar(select(func.max(InterviewOperation.lease_until)).where(
+                    InterviewOperation.interview_id == item.id, InterviewOperation.status == 'running',
+                    InterviewOperation.kind.like('ai_%'), InterviewOperation.lease_until >= deadline,
+                    InterviewOperation.lease_until <= now))
+                if expired_lease:
+                    item.model_grace_until = utc(expired_lease) + timedelta(seconds=MODEL_RECOVERY_GRACE_SECONDS)
+            if item.model_grace_until and now < utc(item.model_grace_until):
                 return None
             item.status, item.ended_at, item.end_reason = 'interrupted', now, 'inactivity_timeout'
         else:
@@ -246,6 +264,7 @@ class InterviewService:
             if item.status != 'pending': raise InterviewConflict('终态不可开始')
             now = await self.clock(self.db)
             item.status, item.started_at, item.last_activity_at = 'in_progress', now, now
+            item.model_grace_until = None
             if item.limit_type == 'time': item.deadline_at = now + timedelta(seconds=item.duration_seconds)
             item.version += 1
             return self._record(item, key, 'start', digest, {'status': item.status, 'started_at': now.isoformat()})
@@ -314,7 +333,7 @@ class InterviewService:
             answer = InterviewAnswer(interview_id=item.id, question_id=question.id, kind='skip' if skip else 'answer', content='' if skip else content.strip(), request_id=key, submitted_at=now)
             self.db.add(answer); await self.db.flush()
             item.valid_main_count = await self._count_valid_main(item)
-            item.last_activity_at = now; item.version += 1
+            item.last_activity_at = now; item.model_grace_until = None; item.version += 1
             return self._record(item, key, 'answer', digest, {'id': answer.id, 'valid_main_count': item.valid_main_count})
 
     async def close_main(self, interview_id: str, key: str, question_id: str | None = None) -> dict:

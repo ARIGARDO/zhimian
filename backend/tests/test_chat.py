@@ -123,3 +123,27 @@ async def test_model_error_categories(monkeypatch, failure, expected):
     with pytest.raises(ModelError, match=expected) as error:
         _ = [part async for part in stream_chat(Settings(model_name='test', model_api_key='private-key'), [])]
     assert 'private' not in str(error.value) and 'secret' not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_model_token_limit_is_optional_and_explicit(monkeypatch):
+    import json
+    seen=[]
+    async def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200,text='data: [DONE]\n\n')
+    original=httpx.AsyncClient
+    monkeypatch.setattr('app.llm.client.httpx.AsyncClient',lambda **kwargs: original(transport=httpx.MockTransport(handler)))
+    settings=Settings(model_name='test',model_api_key='test-key')
+    _=[v async for v in stream_chat(settings, [])]
+    _=[v async for v in stream_chat(settings, [], max_tokens=321)]
+    assert 'max_tokens' not in seen[0] and seen[1]['max_tokens']==321
+
+
+@pytest.mark.asyncio
+async def test_model_unsupported_token_parameter_is_visible(monkeypatch):
+    async def handler(request): return httpx.Response(400, text='provider rejected parameter')
+    original=httpx.AsyncClient
+    monkeypatch.setattr('app.llm.client.httpx.AsyncClient',lambda **kwargs: original(transport=httpx.MockTransport(handler)))
+    with pytest.raises(ModelError,match='不兼容'):
+        _=[part async for part in stream_chat(Settings(model_name='test',model_api_key='test-key'),[],max_tokens=100)]

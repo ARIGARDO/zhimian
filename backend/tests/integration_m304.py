@@ -34,12 +34,13 @@ class MockModel(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
     def do_POST(self):
         data=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        assert data.get('max_tokens') == 1024
         messages=data['messages']; instruction=messages[0]['content']; records=json.loads(messages[1]['content'])
         marker=records[-1]['answer']
         with lock:
             calls[marker]=calls.get(marker,0)+1; attempt=calls[marker]
         if marker in ('slow', 'crash'): time.sleep(3)
-        if marker=='invalid' and attempt==1: output='invalid-json'
+        if marker=='invalid-always' or (marker=='invalid' and attempt==1): output='invalid-json'
         elif 'overall_score' in instruction:
             output=json.dumps({'summary':'总结','overall_score':80.0,'items':[{'answer_id':r['answer_id'],'review':'建议继续练习'} for r in records]},ensure_ascii=False)
         elif '"items"' in instruction:
@@ -92,6 +93,15 @@ async def main():
         assert good['status']=='complete' and bad['id']==good['id']
         assert (await c.get(path+'/ai/operations/'+good['id'])).json()['attempt_count']==2
         print('无效 JSON、同键重试及操作状态：通过')
+        cid,q,a=await create(answer='invalid-always'); path=bases[0]+f'/interviews/{cid}'
+        async with factory() as db: original=(await db.get(Interview,cid)).last_activity_at
+        for index in range(3):
+            result=(await c.post(path+'/ai/feedback',json={'answer_id':a['id']},headers=h(f'budget-{index}'))).json()
+            assert result['status']=='failed'
+        assert (await c.post(path+'/ai/feedback',json={'answer_id':a['id']},headers=h('budget-extra'))).status_code==409
+        async with factory() as db: assert (await db.get(Interview,cid)).last_activity_at==original
+        assert calls['invalid-always']==3
+        print('跨幂等键累计尝试上限及失败不刷新活动：通过')
         cid,q,a=await create(mode='formal'); path=bases[0]+f'/interviews/{cid}'
         assert (await c.post(path+'/ai/feedback',json={'answer_id':a['id']},headers=h('forbidden'))).status_code==409
         await c.post(path+'/terminate',headers=h('terminate'))
@@ -109,14 +119,22 @@ async def main():
         cid,q,a=await create(answer='slow'); paths=[b+f'/interviews/{cid}' for b in bases]
         running=asyncio.create_task(c.post(paths[0]+'/ai/followup',json={'answer_id':a['id']},headers=h('idle-race')))
         await asyncio.sleep(.7)
+        original=datetime.now(timezone.utc)-timedelta(minutes=31)
         async with factory() as db:
             async with db.begin():
                 item=await db.get(Interview,cid)
-                item.last_activity_at=datetime.now(timezone.utc)-timedelta(minutes=31)
+                item.last_activity_at=original
         assert (await c.get(paths[1])).json()['status']=='in_progress'
         assert (await running).json()['status']=='complete'
         assert (await c.get(paths[1])).json()['status']=='in_progress'
-        print('运行中有效租约阻止无活动误中断：通过')
+        async with factory() as db:
+            item=await db.get(Interview,cid)
+            assert item.last_activity_at==original and item.model_grace_until is not None
+            grace=item.model_grace_until
+        feedback=(await c.post(paths[1]+'/ai/feedback',json={'answer_id':a['id']},headers=h('grace-retry'))).json()
+        assert feedback['status']=='complete'
+        async with factory() as db: assert (await db.get(Interview,cid)).model_grace_until==grace
+        print('有效租约与一次性宽限保护，模型成功不刷新活动：通过')
         cid,q,a=await create(answer='crash'); paths=[b+f'/interviews/{cid}' for b in bases]
         running=asyncio.create_task(c.post(paths[0]+'/ai/followup',json={'answer_id':a['id']},headers=h('crash-key')))
         await asyncio.sleep(.8)

@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     model_name: str = ""
     model_api_key: SecretStr = SecretStr("")
     model_timeout: float = 60.0
+    # M3 单操作总尝试次数（含首次）、输出 token 与单次最长执行时间。
+    model_ai_max_attempts: int = Field(default=3, ge=1, le=10)
+    model_ai_max_output_tokens: int = Field(default=1024, ge=1, le=8192)
+    model_ai_max_duration_seconds: int = Field(default=120, ge=10, le=900)
 
     @property
     def allowed_origins(self) -> list[str]:
