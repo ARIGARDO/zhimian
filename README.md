@@ -86,7 +86,7 @@ Vite 将 `/api` 请求代理到 `http://localhost:8000`。前后端都独立启�
 - `PATCH /api/v1/progress/{topic_id}` — 保存阅读位置或手动完成状态
 - `GET /api/v1/overview` — 当前学习进度概览
 - `GET/POST /api/v1/conversations`、`PATCH/DELETE /api/v1/conversations/{id}` — 会话管理（列表按专题或普通问答过滤）
-- `GET /api/v1/conversations/{id}/messages`、`POST /api/v1/conversations/{id}/messages/stream` — 消息历史和 SSE 流式回复
+- `GET /api/v1/conversations/{id}/messages`、`POST /api/v1/conversations/{id}/messages/stream` — 消息历史和 SSE 流式回复；专题会话的读取、发送、修改和删除需携带 `?topic_id=<专题ID>`。
 - `/docs` — FastAPI Swagger UI；`/openapi.json` — Hey API 未来生成类型的契约来源
 
 阅读进度请求例子：
