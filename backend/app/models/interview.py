@@ -65,16 +65,17 @@ class InterviewQuestion(Base):
     parent_id: Mapped[str | None] = mapped_column(String(36))
     main_number: Mapped[int] = mapped_column(Integer, nullable=False)
     depth: Mapped[int] = mapped_column(Integer, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     source_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     __table_args__ = (
         UniqueConstraint('interview_id', 'id', name='uq_iq_interview_id'),
-        UniqueConstraint('interview_id', 'main_number', 'depth', name='uq_iq_position'),
+        UniqueConstraint('interview_id', 'main_number', 'position', name='uq_iq_sequence'),
         ForeignKeyConstraint(['interview_id','parent_id'], ['interview_questions.interview_id','interview_questions.id'], name='fk_iq_parent', ondelete='CASCADE'),
-        CheckConstraint('main_number > 0 AND depth BETWEEN 0 AND 2', name='ck_iq_position'),
-        CheckConstraint('(depth = 0 AND parent_id IS NULL) OR (depth > 0 AND parent_id IS NOT NULL)', name='ck_iq_parent'),
+        CheckConstraint('main_number > 0 AND depth BETWEEN 0 AND 2 AND position BETWEEN 0 AND 2', name='ck_iq_position_v2'),
+        CheckConstraint('(depth = 0 AND position = 0 AND parent_id IS NULL) OR (depth > 0 AND position > 0 AND parent_id IS NOT NULL)', name='ck_iq_parent'),
     )
 
 

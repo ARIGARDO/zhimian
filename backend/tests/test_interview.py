@@ -112,9 +112,9 @@ async def test_time_expiry_boundary_and_evidence(env):
         assert item.status == 'completed' and item.valid_main_count == 2
     cid2 = await create(svc(), limit_type='time'); await call(svc(), 'start', cid2, 's')
     clock[0] += timedelta(seconds=60)
-    assert (await call(svc(), 'check_expiry', cid2)) == {'status': 'in_progress', 'outcome': 'expired_insufficient_evidence'}
-    assert (await call(svc(), 'add_question', cid2, 'late', '问题'))['outcome'] == 'expired_insufficient_evidence'
-    assert (await call(svc(), 'end', cid2, 'end', 'interrupted', '人为确认异常'))['status'] == 'interrupted'
+    assert (await call(svc(), 'check_expiry', cid2)) == {'status': 'terminated', 'outcome': 'terminated'}
+    with pytest.raises(InterviewConflict): await call(svc(), 'add_question', cid2, 'late', '问题')
+    with pytest.raises(InterviewConflict): await call(svc(), 'end', cid2, 'end', 'interrupted', '人为确认异常')
 
 
 @pytest.mark.asyncio
@@ -129,7 +129,7 @@ async def test_cross_interview_parent_and_inactivity(env):
     with pytest.raises(InterviewConflict): await call(svc(), 'answer', b, 'x', qa['id'], '跨场回答')
     clock[0] += timedelta(minutes=30)
     assert await call(svc(), 'check_inactivity', a)
-    async with factory() as db: assert (await db.get(Interview, a)).status == 'in_progress'
+    async with factory() as db: assert (await db.get(Interview, a)).status == 'interrupted'
 
 
 @pytest.mark.asyncio
@@ -141,7 +141,7 @@ async def test_count_limit_with_insufficient_evidence(env):
         q = await call(svc(), 'add_question', cid, f'q{i}', '问题')
         await call(svc(), 'answer', cid, f'a{i}', q['id'], skip=True)
         result = await call(svc(), 'close_main', cid, f'close{i}')
-    assert result == {'status': 'in_progress', 'outcome': 'insufficient_evidence'}
+    assert result == {'status': 'terminated', 'outcome': 'terminated'}
     async with factory() as db:
         item = await db.get(Interview, cid)
         assert item.main_count == 3 and item.valid_main_count == 0
@@ -157,14 +157,14 @@ async def test_config_validation_and_just_before_deadline(env):
             await InterviewService(db, recommended_rules()).create(mode='practice', limit_type='count', main_limit=2, duration_seconds=None, preset_snapshot={}, config_snapshot={})
     with pytest.raises(InterviewConflict):
         async with svc().db as db:
-            await InterviewService(db, recommended_rules()).create(mode='practice', limit_type='time', main_limit=None, duration_seconds=60, preset_snapshot={}, config_snapshot={}, jd='x' * 5001)
+            await InterviewService(db, recommended_rules()).create(mode='practice', limit_type='time', main_limit=None, duration_seconds=60, preset_snapshot={'kind':'role'}, config_snapshot={}, jd='x' * 5001)
     cid = await create(svc(), limit_type='time')
     await call(svc(), 'start', cid, 's')
     q = await call(svc(), 'add_question', cid, 'q', '边界题')
     clock[0] += timedelta(seconds=59, milliseconds=999)
     assert (await call(svc(), 'answer', cid, 'a', q['id'], '及时提交'))['valid_main_count'] == 1
     clock[0] += timedelta(milliseconds=1)
-    assert (await call(svc(), 'check_expiry', cid))['outcome'] == 'expired_insufficient_evidence'
+    assert (await call(svc(), 'check_expiry', cid))['outcome'] == 'terminated'
 
 
 @pytest.mark.asyncio
@@ -173,9 +173,8 @@ async def test_rule_snapshot_prevents_mid_session_changes(env):
     factory, clock, svc = env
     cid = await create(svc())
     async with factory() as db:
-        service = InterviewService(db, replace(recommended_rules(), min_valid_main=1))
-        with pytest.raises(InterviewConflict, match='快照'):
-            await service.start(cid, 'start')
+        with pytest.raises(ValueError, match='规则'):
+            InterviewService(db, replace(recommended_rules(), min_valid_main=1))
     assert (await call(svc(), 'start', cid, 'start'))['status'] == 'in_progress'
 
 
@@ -192,3 +191,120 @@ async def test_reused_session_refreshes_terminal_status(env):
         async with stale:
             with pytest.raises(InterviewConflict):
                 await InterviewService(stale, recommended_rules()).add_question(cid, 'late', '题目')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('valid_count',[0, 1, 2])
+@pytest.mark.parametrize('limit_type',['time','count'])
+async def test_confirmed_completion_matrix(env, valid_count, limit_type):
+    factory, clock, svc = env
+    cid = await create(svc(), limit_type=limit_type)
+    await call(svc(), 'start', cid, 'start')
+    total = 3 if limit_type == 'count' else valid_count
+    for i in range(total):
+        q = await call(svc(), 'add_question', cid, f'q{i}', '问题')
+        await call(svc(), 'answer', cid, f'a{i}', q['id'], '不知道' if i < valid_count else '', skip=i >= valid_count)
+        result = await call(svc(), 'close_main', cid, f'c{i}')
+    if limit_type == 'time':
+        clock[0] += timedelta(seconds=60)
+        result = await call(svc(), 'check_expiry', cid)
+    assert result['status'] == ('completed' if valid_count == 2 else 'terminated')
+    async with factory() as db:
+        item = await db.get(Interview, cid)
+        assert item.valid_main_count == valid_count
+        assert item.end_reason == (f'{limit_type}_limit' if valid_count == 2 else f'{limit_type}_limit_insufficient_evidence')
+    with pytest.raises(InterviewConflict): await call(svc(), 'add_question', cid, 'late', '迟到')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('text','valid'), [('   ',False),('！！！...？',False),('🙂',False),('不知道',True),('不会',True),('1+1=3',True),('A' * 12001,False),('a\x00',False)])
+async def test_valid_answer_rules(env, text, valid):
+    factory, clock, svc = env
+    cid=await create(svc()); await call(svc(),'start',cid,'s')
+    q=await call(svc(),'add_question',cid,'q','题')
+    if valid:
+        assert (await call(svc(),'answer',cid,'a',q['id'],text))['valid_main_count']==1
+    else:
+        with pytest.raises(InterviewConflict): await call(svc(),'answer',cid,'a',q['id'],text)
+
+
+@pytest.mark.asyncio
+async def test_two_sibling_followups_total_and_main_count(env):
+    factory, clock, svc=env
+    cid=await create(svc()); await call(svc(),'start',cid,'s')
+    q=await call(svc(),'add_question',cid,'q','主问题')
+    await call(svc(),'answer',cid,'a',q['id'],'不会')
+    f1=await call(svc(),'add_question',cid,'f1','追问一',q['id'])
+    assert f1['depth']==1
+    assert (await call(svc(),'answer',cid,'a1',f1['id'],'补充'))['valid_main_count']==1
+    f2=await call(svc(),'add_question',cid,'f2','追问二',q['id'])
+    assert f2['depth']==1
+    assert (await call(svc(),'answer',cid,'a2',f2['id'],'补充'))['valid_main_count']==1
+    with pytest.raises(InterviewConflict): await call(svc(),'add_question',cid,'f3','追问三',f2['id'])
+    async with factory() as db: assert (await db.get(Interview,cid)).main_count==1
+
+
+@pytest.mark.asyncio
+async def test_inactivity_poll_running_operation_and_legacy_snapshot(env):
+    from app.models.interview import InterviewOperation
+    factory, clock, svc=env
+    cid=await create(svc()); await call(svc(),'start',cid,'s')
+    clock[0] += timedelta(minutes=29, seconds=59)
+    assert not await call(svc(),'check_inactivity',cid)
+    assert not await call(svc(),'check_inactivity',cid)
+    async with factory() as db:
+        async with db.begin():
+            db.add(InterviewOperation(interview_id=cid,kind='model',request_id='model',request_hash='x'*64,status='running',lease_until=clock[0]+timedelta(minutes=2)))
+    clock[0] += timedelta(seconds=1)
+    assert not await call(svc(),'check_inactivity',cid)
+    async with factory() as db:
+        async with db.begin():
+            op=await db.scalar(__import__('sqlalchemy').select(InterviewOperation).where(InterviewOperation.interview_id==cid,InterviewOperation.request_id=='model'))
+            op.status='complete'
+    assert await call(svc(),'check_inactivity',cid)
+    async with factory() as db:
+        item=await db.get(Interview,cid)
+        assert item.status=='interrupted' and item.end_reason=='inactivity_timeout'
+    with pytest.raises(InterviewConflict): await call(svc(),'add_question',cid,'late','题')
+    legacy=await create(svc())
+    async with factory() as db:
+        async with db.begin():
+            item=await db.get(Interview,legacy)
+            item.config_snapshot={'_rules': {'validity_policy_id':'nonempty-v1'}}
+    with pytest.raises(InterviewConflict,match='快照'): await call(svc(),'start',legacy,'s')
+
+
+@pytest.mark.asyncio
+async def test_jd_unicode_boundaries(env):
+    factory, clock, svc=env
+    async with svc().db as db:
+        service=InterviewService(db,recommended_rules())
+        assert await service.create(mode='practice',limit_type='count',main_limit=3,duration_seconds=None,preset_snapshot={'kind':'role'},config_snapshot={},jd='面'*5000)
+    async with svc().db as db:
+        service=InterviewService(db,recommended_rules())
+        with pytest.raises(InterviewConflict):
+            await service.create(mode='practice',limit_type='count',main_limit=3,duration_seconds=None,preset_snapshot={'kind':'role'},config_snapshot={},jd='面'*5001)
+
+
+@pytest.mark.asyncio
+async def test_followup_without_main_answer_not_counted(env):
+    from app.models.interview import InterviewAnswer, InterviewQuestion
+    factory, clock, svc=env
+    cid=await create(svc(),limit_type='time'); await call(svc(),'start',cid,'s')
+    main=await call(svc(),'add_question',cid,'q','主问题')
+    async with factory() as db:
+        async with db.begin():
+            follow=InterviewQuestion(interview_id=cid,parent_id=main['id'],main_number=1,depth=1,position=1,content='追问',source_snapshot={})
+            db.add(follow); await db.flush()
+            db.add(InterviewAnswer(interview_id=cid,question_id=follow.id,kind='answer',content='追问有效',request_id='direct-test',submitted_at=clock[0]))
+    clock[0] += timedelta(seconds=60)
+    assert (await call(svc(),'check_expiry',cid))['status']=='terminated'
+    async with factory() as db: assert (await db.get(Interview,cid)).valid_main_count==0
+
+
+@pytest.mark.asyncio
+async def test_standard_question_bank_cannot_accept_jd(env):
+    factory, clock, svc=env
+    async with svc().db as db:
+        with pytest.raises(InterviewConflict, match='岗位'):
+            await InterviewService(db,recommended_rules()).create(mode='practice',limit_type='count',main_limit=3,duration_seconds=None,preset_snapshot={'kind':'bank'},config_snapshot={},jd='岗位要求')

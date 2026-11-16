@@ -1,5 +1,7 @@
 """PostgreSQL 并发验收：仅创建并删除本脚本自己的测试场次。"""
 import asyncio
+import json
+import sys
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -8,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.session import get_engine
-from app.models.interview import Interview, InterviewAnswer, InterviewQuestion, InterviewReport
+from app.models.interview import Interview, InterviewAnswer, InterviewQuestion, InterviewReport, InterviewOperation
 from app.services.interview import InterviewConflict, InterviewService, recommended_rules
 
 
@@ -58,6 +60,15 @@ async def main():
         assert await outcome(call('answer', cid, 'late', q['id'], '迟到')) == 'conflict'
         print('PostgreSQL 终止与提交竞争、终态拒绝后续写入：通过')
 
+        cid=await make(); await call('start',cid,'s')
+        ends=await asyncio.gather(call('end',cid,'same-end','terminated','主动结束'),call('end',cid,'same-end','terminated','主动结束'))
+        assert ends[0]==ends[1]=={'status':'terminated'}
+        async with factory() as db:
+            item=await db.get(Interview,cid)
+            assert item.status=='terminated' and item.end_reason=='主动结束'
+            assert await db.scalar(select(func.count(InterviewOperation.id)).where(InterviewOperation.interview_id==cid,InterviewOperation.request_id=='same-end'))==1
+        print('PostgreSQL 并发重复终止幂等：通过')
+
         cid = await make(limit_type='time'); await call('start', cid, 's')
         for i in range(2):
             q=await call('add_question', cid, f'q{i}', '时间题')
@@ -101,7 +112,7 @@ async def main():
         async with factory() as db:
             try:
                 async with db.begin():
-                    db.add(InterviewQuestion(interview_id=target, parent_id=other_q['id'], main_number=1, depth=1, content='跨场', source_snapshot={}))
+                    db.add(InterviewQuestion(interview_id=target, parent_id=other_q['id'], main_number=1, depth=1, position=1, content='跨场', source_snapshot={}))
                     await db.flush()
             except IntegrityError: pass
             else: raise AssertionError('跨场父题外键约束失效')
@@ -113,6 +124,57 @@ async def main():
             except IntegrityError: pass
             else: raise AssertionError('部分报告分数约束失效')
         print('PostgreSQL 跨场题目及部分报告评分约束：通过')
+
+        # 两个独立 Python 进程争抢同一主问题最后一个追问名额。
+        parallel=await make(); await call('start',parallel,'s')
+        mainq=await call('add_question',parallel,'main','主问题')
+        await call('answer',parallel,'answer',mainq['id'],'不会')
+        f1=await call('add_question',parallel,'first','第一个追问',mainq['id'])
+        await call('answer',parallel,'first_answer',f1['id'],'回答')
+        code = """import asyncio,json,sys
+from app.db.session import get_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from app.services.interview import InterviewService, InterviewConflict, recommended_rules
+async def main():
+ e=get_engine(); factory=async_sessionmaker(e,expire_on_commit=False)
+ try:
+  async with factory() as db:
+   try: result=await InterviewService(db,recommended_rules()).add_question(sys.argv[1],sys.argv[2],'并列追问',sys.argv[3]); print(json.dumps({'ok':True,'id':result['id']}))
+   except InterviewConflict: print(json.dumps({'ok':False}))
+ finally: await e.dispose()
+asyncio.run(main())"""
+        async def worker(key):
+            process=await asyncio.create_subprocess_exec(sys.executable,'-c',code,parallel,key,mainq['id'],stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+            out,err=await process.communicate()
+            if process.returncode: raise RuntimeError(err.decode())
+            return json.loads(out)
+        outcomes=await asyncio.gather(worker('parallel1'),worker('parallel2'))
+        assert sum(x['ok'] for x in outcomes)==1
+        async with factory() as db:
+            count=await db.scalar(select(func.count(InterviewQuestion.id)).where(InterviewQuestion.interview_id==parallel,InterviewQuestion.depth>0))
+            assert count==2
+        print('PostgreSQL 双进程并发追问总数限制：通过')
+
+        # 过期活动时间与正在运行的租约；使用真实数据库时钟。
+        idle=await real_call('create', mode='practice', limit_type='count', main_limit=3, duration_seconds=None, preset_snapshot={'test': str(uuid4())}, config_snapshot={})
+        ids.append(idle); await real_call('start',idle,'s')
+        idleq=await real_call('add_question',idle,'q','无活动测试题')
+        async with factory() as db:
+            async with db.begin():
+                item=await db.get(Interview,idle)
+                item.last_activity_at=datetime.now(timezone.utc)-timedelta(minutes=31)
+                db.add(InterviewOperation(interview_id=idle,kind='model',request_id='running',request_hash='x'*64,status='running',lease_until=datetime.now(timezone.utc)+timedelta(minutes=2)))
+        assert not await real_call('check_inactivity',idle)
+        async with factory() as db:
+            async with db.begin():
+                op=await db.scalar(select(InterviewOperation).where(InterviewOperation.interview_id==idle,InterviewOperation.request_id=='running'))
+                op.status='complete'
+        await asyncio.gather(outcome(real_call('answer',idle,'a',idleq['id'],'超时')), outcome(real_call('check_inactivity',idle)))
+        async with factory() as db:
+            item=await db.get(Interview,idle)
+            assert item.status=='interrupted' and item.end_reason=='inactivity_timeout'
+            assert await db.scalar(select(func.count(InterviewAnswer.id)).where(InterviewAnswer.question_id==idleq['id']))==0
+        print('PostgreSQL 运行租约保护及无活动与提交竞争：通过')
     finally:
         async with factory() as db:
             async with db.begin(): await db.execute(delete(Interview).where(Interview.id.in_(ids)))
