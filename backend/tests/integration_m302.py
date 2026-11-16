@@ -71,6 +71,28 @@ async def main():
             assert await db.scalar(select(func.count(InterviewAnswer.id)).where(InterviewAnswer.question_id == q['id'])) == 0
         print('PostgreSQL 截止瞬间提交与到期竞争：通过')
 
+        # 单独用数据库时钟验证过期提交与惰性到期检查竞争。
+        async def real_call(method, *args, **kwargs):
+            async with factory() as db:
+                return await getattr(InterviewService(db, recommended_rules()), method)(*args, **kwargs)
+        real_id=await real_call('create', mode='practice', limit_type='time', main_limit=None, duration_seconds=60, preset_snapshot={'test': str(uuid4())}, config_snapshot={})
+        ids.append(real_id)
+        await real_call('start', real_id, 's')
+        for i in range(2):
+            rq=await real_call('add_question', real_id, f'q{i}', '真实时钟题')
+            await real_call('answer', real_id, f'a{i}', rq['id'], '有效')
+            await real_call('close_main', real_id, f'c{i}')
+        rq=await real_call('add_question', real_id, 'q3', '到期题')
+        async with factory() as db:
+            async with db.begin():
+                item=await db.get(Interview, real_id)
+                item.deadline_at=datetime.now(timezone.utc)-timedelta(seconds=1)
+        await asyncio.gather(outcome(real_call('answer', real_id, 'late', rq['id'], '超时')), outcome(real_call('check_expiry', real_id)))
+        async with factory() as db:
+            assert (await db.get(Interview,real_id)).status == 'completed'
+            assert await db.scalar(select(func.count(InterviewAnswer.id)).where(InterviewAnswer.question_id == rq['id'])) == 0
+        print('PostgreSQL 数据库时钟到期与提交竞争：通过')
+
         other=await make(); await call('start', other, 's')
         other_q=await call('add_question', other, 'q', '其他场题')
         target=await make(); await call('start', target, 's')

@@ -56,7 +56,7 @@ class InterviewService:
                 'validity_policy_id': self.rules.validity_policy_id}
 
     async def _lock(self, interview_id: str) -> Interview:
-        item = await self.db.scalar(select(Interview).where(Interview.id == interview_id).with_for_update())
+        item = await self.db.scalar(select(Interview).where(Interview.id == interview_id).with_for_update().execution_options(populate_existing=True))
         if item is None:
             raise InterviewConflict('面试不存在')
         if item.config_snapshot.get('_rules') != self._rules_snapshot():
@@ -240,7 +240,7 @@ class InterviewService:
         async with self.db.begin():
             item = await self._lock(interview_id)
             if report_type == 'full' and item.status != 'completed': raise InterviewConflict('未完成面试不能生成完整报告')
-            if report_type == 'partial' and (item.status not in {'terminated', 'interrupted'}): raise InterviewConflict('部分复盘不得评分')
+            if report_type == 'partial' and (item.status not in {'terminated', 'interrupted'} or item.valid_main_count < 1): raise InterviewConflict('部分复盘需要未完成场次和有效回答')
             if report_type not in {'full', 'partial'}: raise InterviewConflict('报告类型无效')
             # 部分报告仅存纯文字字段，不定义任何逐题数值评分字段。
             report = InterviewReport(interview_id=item.id, type=report_type, status='not_requested')

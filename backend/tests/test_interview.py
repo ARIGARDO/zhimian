@@ -82,7 +82,13 @@ async def test_insufficient_and_formal_skip_and_report(env):
     with pytest.raises(InterviewConflict): await call(svc(), 'end', cid, 'other', 'interrupted', '异常')
     with pytest.raises(InterviewConflict): await call(svc(), 'start', cid, 'restart')
     with pytest.raises(InterviewConflict): await call(svc(), 'add_report_placeholder', cid, 'full')
-    rid = await call(svc(), 'add_report_placeholder', cid, 'partial')
+    with pytest.raises(InterviewConflict): await call(svc(), 'add_report_placeholder', cid, 'partial')
+    cid2 = await create(svc())
+    await call(svc(), 'start', cid2, 's')
+    q2 = await call(svc(), 'add_question', cid2, 'q', '问题')
+    await call(svc(), 'answer', cid2, 'a', q2['id'], '有效回答')
+    await call(svc(), 'end', cid2, 'end', 'interrupted', '异常')
+    rid = await call(svc(), 'add_report_placeholder', cid2, 'partial')
     async with factory() as db:
         report = await db.get(InterviewReport, rid)
         assert report.overall_score is None and report.text_review is None and report.status == 'not_requested'
@@ -171,3 +177,18 @@ async def test_rule_snapshot_prevents_mid_session_changes(env):
         with pytest.raises(InterviewConflict, match='快照'):
             await service.start(cid, 'start')
     assert (await call(svc(), 'start', cid, 'start'))['status'] == 'in_progress'
+
+
+@pytest.mark.asyncio
+async def test_reused_session_refreshes_terminal_status(env):
+    factory, clock, svc = env
+    cid = await create(svc())
+    await call(svc(), 'start', cid, 's')
+    async with factory() as stale:
+        old = await stale.get(Interview, cid)
+        await stale.commit()
+        assert old.status == 'in_progress'
+        await call(svc(), 'end', cid, 'end', 'terminated', '结束')
+        async with stale:
+            with pytest.raises(InterviewConflict):
+                await InterviewService(stale, recommended_rules()).add_question(cid, 'late', '题目')
