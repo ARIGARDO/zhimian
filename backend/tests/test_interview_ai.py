@@ -201,3 +201,27 @@ def test_reject_scored_partial_and_evaluative_followup():
 def test_partial_rejects_unicode_numeric_scores():
     with pytest.raises(ModelError):
         parse_result('partial',json.dumps({'summary':'Ⅷ 分','items':[{'answer_id':'a','review':'继续练习'}]},ensure_ascii=False),{'a'})
+
+
+@pytest.mark.asyncio
+async def test_model_result_after_deadline_is_discarded(env):
+    factory,call,make=env
+    async with factory() as db:
+        cid=await InterviewService(db,recommended_rules()).create(mode='practice',limit_type='time',main_limit=None,duration_seconds=60,preset_snapshot={},config_snapshot={})
+    await call('start',cid,'start')
+    q=await call('add_question',cid,'q','问题')
+    a=await call('answer',cid,'a',q['id'],'有效答案')
+    started=asyncio.Event(); resume=asyncio.Event()
+    async def slow(settings,messages):
+        started.set(); await resume.wait(); yield '{"question":"为什么？"}'
+    task=asyncio.create_task(InterviewAIService(factory,slow).run(cid,'follow','followup',a['id']))
+    await started.wait()
+    async with factory() as db:
+        async with db.begin():
+            item=await db.get(Interview,cid)
+            item.deadline_at=datetime.now(timezone.utc)-timedelta(seconds=1)
+    resume.set(); result=await task
+    assert result['status']=='failed'
+    async with factory() as db:
+        assert (await db.get(Interview,cid)).status=='terminated'
+        assert len((await db.scalars(select(InterviewAIArtifact).where(InterviewAIArtifact.interview_id==cid))).all())==0
