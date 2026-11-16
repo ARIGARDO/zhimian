@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.interview import Interview, InterviewPreset, InterviewQuestionBank
-from app.services.interview import InterviewConflict, InterviewService, public_preset, recommended_rules
+from app.models.interview import InterviewPreset, InterviewQuestionBank
+from app.services.interview import InterviewConflict, InterviewService, recommended_rules
 
 class InterviewRoute(APIRoute):
     def get_route_handler(self):
@@ -85,11 +85,7 @@ async def create_interview(body: CreateInterview, db: Database, key: Key):
 
 @router.get('/interviews')
 async def list_interviews(db: Database, status: Literal['completed','incomplete','pending','in_progress'] | None = None, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0)):
-    stmt = select(Interview).order_by(Interview.created_at.desc(), Interview.id.desc()).limit(limit).offset(offset)
-    if status:
-        stmt = stmt.where(Interview.status.in_(['terminated','interrupted']) if status == 'incomplete' else Interview.status == status)
-    items = (await db.scalars(stmt)).all()
-    return [{'id': i.id, 'status': i.status, 'mode': i.mode, 'preset': public_preset(i.preset_snapshot), 'created_at': i.created_at, 'ended_at': i.ended_at} for i in items]
+    return await service(db).list_history(status, limit, offset)
 
 
 @router.get('/interviews/{interview_id}')

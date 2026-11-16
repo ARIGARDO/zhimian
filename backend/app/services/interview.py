@@ -209,6 +209,21 @@ class InterviewService:
             self.db.add(q); await self.db.flush(); item.version += 1
             return self._record(item, key, 'next_question', digest, {'id': q.id, 'main_number': q.main_number, 'depth': 0, 'content': q.content})
 
+    async def list_history(self, status: str | None, limit: int, offset: int) -> list[dict]:
+        async with self.db.begin():
+            # 锁顺序固定，先惰性结算当前规则版本的过期场次，再按终态过滤。
+            active = (await self.db.scalars(select(Interview).where(Interview.status == 'in_progress').order_by(Interview.id).with_for_update())).all()
+            now = await self.clock(self.db)
+            for item in active:
+                if item.config_snapshot.get('_rules') == self._rules_snapshot():
+                    await self._expire(item, now)
+            await self.db.flush()
+            stmt = select(Interview).order_by(Interview.created_at.desc(), Interview.id.desc()).limit(limit).offset(offset)
+            if status:
+                stmt = stmt.where(Interview.status.in_(['terminated', 'interrupted']) if status == 'incomplete' else Interview.status == status)
+            items = (await self.db.scalars(stmt)).all()
+            return [{'id': i.id, 'status': i.status, 'mode': i.mode, 'preset': public_preset(i.preset_snapshot), 'created_at': i.created_at, 'ended_at': i.ended_at} for i in items]
+
     async def detail(self, interview_id: str) -> dict:
         async with self.db.begin():
             item = await self._lock(interview_id)

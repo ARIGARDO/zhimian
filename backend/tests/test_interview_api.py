@@ -1,10 +1,11 @@
+from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models.interview import InterviewPreset, InterviewQuestionBank
+from app.models.interview import Interview, InterviewPreset, InterviewQuestionBank
 
 
 @pytest.mark.asyncio
@@ -62,6 +63,12 @@ async def test_api_flow_scope_idempotency_and_visibility(tmp_path):
             assert (await c.post(f'/interviews/{formal}/answers',json={'question_id':fq['id'],'skip':True},headers=h('fskip'))).status_code==409
             detail=(await c.get(f'/interviews/{formal}')).json()
             assert 'score' not in str(detail) and 'review' not in str(detail) and 'question_plan' not in str(detail)
+            async with factory() as db:
+                async with db.begin():
+                    item=await db.get(Interview,formal)
+                    item.last_activity_at=datetime.now(timezone.utc)-timedelta(minutes=31)
+            history=(await c.get('/interviews?status=incomplete')).json()
+            assert any(x['id']==formal and x['status']=='interrupted' for x in history)
     finally:
         app.dependency_overrides.clear(); await engine.dispose()
 
