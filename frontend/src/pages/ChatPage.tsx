@@ -18,6 +18,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export function ChatPage({ topicId }: { topicId?: string }) {
   const { conversationId } = useParams()
   const navigate = useNavigate()
+  const scope = topicId ? `?topic_id=${encodeURIComponent(topicId)}` : ''
   const base = topicId ? `/learn/topics/${encodeURIComponent(topicId)}/chat` : '/assistant'
   const [history, setHistory] = useState<Conversation[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -36,7 +37,7 @@ export function ChatPage({ topicId }: { topicId?: string }) {
       if (!conversationId) { setMessages([]); setError(''); return }
       if (!list.some(c => c.id === conversationId)) { setMessages([]); setError('会话不存在或不属于当前范围'); return }
       if (activeId.current === conversationId) return
-      const data = await request<Message[]>(`/conversations/${encodeURIComponent(conversationId)}/messages`)
+      const data = await request<Message[]>(`/conversations/${encodeURIComponent(conversationId)}/messages${scope}`)
       if (live) { setMessages(data); setError('') }
     }).catch(e => { if (live) setError(e instanceof Error ? e.message : '加载失败') })
     return () => { live = false }
@@ -63,7 +64,7 @@ export function ChatPage({ topicId }: { topicId?: string }) {
       } else activeId.current = id
       setInput('')
       setMessages(prev => [...prev, { id: userId, role: 'user', content, status: 'complete' }, { id: replyId, role: 'assistant', content: '', status: 'streaming' }])
-      const res = await fetch(`/api/v1/conversations/${encodeURIComponent(id)}/messages/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }), signal: abort.signal })
+      const res = await fetch(`/api/v1/conversations/${encodeURIComponent(id)}/messages/stream${scope}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }), signal: abort.signal })
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null) as { detail?: string } | null
         throw new Error(body?.detail || `发送失败（${res.status}）`)
@@ -103,7 +104,7 @@ export function ChatPage({ topicId }: { topicId?: string }) {
     }
   }
   const remove = async (id: string) => {
-    try { await request<void>(`/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }); if (conversationId === id) navigate(base); await refresh() }
+    try { await request<void>(`/conversations/${encodeURIComponent(id)}${scope}`, { method: 'DELETE' }); if (conversationId === id) navigate(base); await refresh() }
     catch (e) { setError(String(e)) }
   }
   return <div className="chat-page"><div className="page-head"><div className="eyebrow">AI ASSISTANT</div><h1>{topicId ? '专题 AI 助手' : 'AI 问答助手'}</h1><p>{topicId ? '围绕当前专题提问，历史记录按专题保存。' : '发送第一条消息后创建会话。'}</p></div>

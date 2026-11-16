@@ -46,6 +46,13 @@ async def conversation_or_404(db: AsyncSession, conversation_id: str) -> Convers
     return item
 
 
+async def scoped_conversation(db: AsyncSession, conversation_id: str, topic_id: str | None) -> Conversation:
+    item = await conversation_or_404(db, conversation_id)
+    if item.topic_id != topic_id:
+        raise HTTPException(404, "会话不存在")
+    return item
+
+
 @router.get('/conversations', response_model=list[ConversationRead])
 async def list_conversations(db: Database, topic_id: str | None = Query(default=None)):
     scope = Conversation.topic_id == topic_id if topic_id else Conversation.topic_id.is_(None)
@@ -66,8 +73,8 @@ async def create_conversation(body: ConversationCreate, db: Database):
 
 
 @router.patch('/conversations/{conversation_id}', response_model=ConversationRead)
-async def update_conversation(conversation_id: str, body: ConversationUpdate, db: Database):
-    item = await conversation_or_404(db, conversation_id)
+async def update_conversation(conversation_id: str, body: ConversationUpdate, db: Database, topic_id: str | None = None):
+    item = await scoped_conversation(db, conversation_id, topic_id)
     item.title = body.title.strip()
     if not item.title:
         raise HTTPException(422, "标题不能为空")
@@ -76,15 +83,15 @@ async def update_conversation(conversation_id: str, body: ConversationUpdate, db
 
 
 @router.delete('/conversations/{conversation_id}', status_code=204)
-async def delete_conversation(conversation_id: str, db: Database):
-    item = await conversation_or_404(db, conversation_id)
+async def delete_conversation(conversation_id: str, db: Database, topic_id: str | None = None):
+    item = await scoped_conversation(db, conversation_id, topic_id)
     await db.delete(item)
     await db.commit()
 
 
 @router.get('/conversations/{conversation_id}/messages', response_model=list[MessageRead])
-async def list_messages(conversation_id: str, db: Database):
-    await conversation_or_404(db, conversation_id)
+async def list_messages(conversation_id: str, db: Database, topic_id: str | None = None):
+    await scoped_conversation(db, conversation_id, topic_id)
     # 仅当没有正在生成的请求持锁时，恢复崩溃遗留状态。
     async with db_session.get_session_factory().kw['bind'].connect() as connection:
         async with AsyncSession(bind=connection) as lock_db:
@@ -105,7 +112,7 @@ class MessageCreate(BaseModel):
 
 
 @router.post('/conversations/{conversation_id}/messages/stream')
-async def send_message(conversation_id: str, body: MessageCreate, db: Database):
+async def send_message(conversation_id: str, body: MessageCreate, db: Database, topic_id: str | None = None):
     import asyncio
     import json
     import anyio
@@ -117,7 +124,7 @@ async def send_message(conversation_id: str, body: MessageCreate, db: Database):
     content = body.content.strip()
     if not content:
         raise HTTPException(422, "消息不能为空")
-    item = await conversation_or_404(db, conversation_id)
+    item = await scoped_conversation(db, conversation_id, topic_id)
     lock_connection = await db_session.get_session_factory().kw['bind'].connect()
     lock_db = AsyncSession(bind=lock_connection)
     try:

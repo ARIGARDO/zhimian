@@ -40,13 +40,16 @@ async def test_chat_scopes_and_stream(tmp_path, monkeypatch):
             assert (await client.post('/api/v1/conversations', json={'title': 'x', 'topic_id': 'missing'})).status_code == 404
             assert [c['id'] for c in (await client.get('/api/v1/conversations')).json()] == [general['id']]
             assert [c['id'] for c in (await client.get('/api/v1/conversations?topic_id=topic')).json()] == [topic['id']]
-            response = await client.post(f"/api/v1/conversations/{topic['id']}/messages/stream", json={'content': '解释一下'})
+            assert (await client.get(f"/api/v1/conversations/{topic['id']}/messages?topic_id=other")).status_code == 404
+            assert (await client.get(f"/api/v1/conversations/{topic['id']}/messages")).status_code == 404
+            assert (await client.post(f"/api/v1/conversations/{topic['id']}/messages/stream?topic_id=other", json={'content':'x'})).status_code == 404
+            response = await client.post(f"/api/v1/conversations/{topic['id']}/messages/stream?topic_id=topic", json={'content': '解释一下'})
             assert response.status_code == 200 and 'event: done' in response.text and '"user_id"' in response.text
             assert '专题资料' in seen[0]['content'] and seen[-1]['content'] == '解释一下'
-            messages = (await client.get(f"/api/v1/conversations/{topic['id']}/messages")).json()
+            messages = (await client.get(f"/api/v1/conversations/{topic['id']}/messages?topic_id=topic")).json()
             assert [(m['role'], m['content'], m['status']) for m in messages] == [('user', '解释一下', 'complete'), ('assistant', '你好世界', 'complete')]
-            assert (await client.delete(f"/api/v1/conversations/{topic['id']}")).status_code == 204
-            assert (await client.get(f"/api/v1/conversations/{topic['id']}/messages")).status_code == 404
+            assert (await client.delete(f"/api/v1/conversations/{topic['id']}?topic_id=topic")).status_code == 204
+            assert (await client.get(f"/api/v1/conversations/{topic['id']}/messages?topic_id=topic")).status_code == 404
     finally:
         app.dependency_overrides.clear()
         await engine.dispose()
