@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowRight, Clock3, FileText, Mic, Sparkles } from 'lucide-react'
@@ -73,12 +73,19 @@ function AIAction({ id, kind, target, disabled, onComplete }: { id: string; kind
   const result = action.result
   const body = kind === 'report' ? { type: target } : { answer_id: target }
   const path = `/interviews/${id}/ai/${kind}`
-  const run = async () => { const response = await action.send<Operation>(path, body, true); if (response?.status === 'complete' || response?.status === 'no_content') onComplete?.() }
+  const handled = useRef<string | null>(null)
+  useEffect(() => {
+    if (result?.status === 'complete' && result.id && handled.current !== result.id) {
+      handled.current = result.id
+      onComplete?.()
+    }
+  }, [result?.status, result?.id, onComplete])
+  const run = async () => { const response = await action.send<Operation>(path, body, true); if (response?.status === 'no_content') onComplete?.() }
   const running = action.busy || result?.status === 'running'
   const caption = kind === 'followup' ? '生成追问' : kind === 'feedback' ? '获取本题反馈' : '生成复盘报告'
   return <div className="interview-ai">
     {!result || result.status === 'failed' ? <button className={outline} disabled={disabled || action.busy || (result?.status === 'failed' && result.retryable === false)} onClick={() => void run()}><Sparkles size={15}/>{action.pending ? '恢复或重试' : caption}</button> : null}
-    {running && <span className="interview-hint">模型处理中，可刷新页面后恢复操作状态。</span>}
+    {running && <span className="interview-hint">模型处理中，可刷新页面后恢复操作状态。关闭标签页可能丢失恢复信息，请先通过面试记录确认结果，避免重复提交。</span>}
     {action.pending && !result && !action.busy && <p className="interview-hint">请求结果尚未确认，恢复时会复用原请求；服务端可能仍在处理。</p>}
     {action.operationError && <button className="minor-link" onClick={() => void action.refreshOperation()}>操作状态查询失败，重新查询</button>}
     {result?.status === 'failed' && <p className="interview-hint">{result.error || '模型操作失败。'}{result.retryable === false ? ' 已达到重试上限。' : ''}</p>}
@@ -106,6 +113,10 @@ function CurrentQuestion({ data, current, main, refresh, action }: { data: Inter
 
 export function InterviewSessionPage() {
   const { interviewId = '' } = useParams()
+  return <InterviewSession key={interviewId} interviewId={interviewId}/>
+}
+
+function InterviewSession({ interviewId }: { interviewId: string }) {
   const detail = useQuery({ queryKey: ['interviews', 'detail', interviewId], queryFn: () => interviewApi.detail(interviewId), refetchInterval: 15000 })
   const action = useAction(`${interviewId}:write`, interviewId)
   const data = detail.data
@@ -125,7 +136,7 @@ export function InterviewSessionPage() {
       {data.status === 'in_progress' && main && !main.closed_at && current && <CurrentQuestion key={current.id} data={data} main={main} current={current} refresh={refresh} action={action}/>}
       {(!current || main?.closed_at) && action.pending && <div className="alert info">写入结果尚未确认。<button disabled={action.busy} onClick={() => void action.send().then(refresh)}>恢复原请求</button></div>}
       {(!current || main?.closed_at) && <Notice error={action.error}/>}
-    </div><aside className="surface-card interview-summary"><span className="interview-icon"><Clock3 size={22}/></span><h2>面试进度</h2><p>已出现 {data.main_count} 道主问题<br/>有效主问题回答 {data.valid_main_count} 道</p>{data.deadline_at ? <p>服务端截止时间<br/><strong>{new Date(data.deadline_at).toLocaleString('zh-CN')}</strong></p> : <p>题数模式在 30 分钟无有效活动后中断；查询和刷新不会延长期限。</p>}<p>面试状态以服务端为准，页面会定期刷新。</p>{data.status === 'in_progress' && <button className={outline} disabled={action.busy || !!action.pending} onClick={terminate}>提前结束</button>}</aside></div>}
+    </div><aside className="surface-card interview-summary"><span className="interview-icon"><Clock3 size={22}/></span><h2>面试进度</h2><p>已出现 {data.main_count} 道主问题<br/>有效主问题回答 {data.valid_main_count} 道</p>{data.deadline_at ? <p>服务端截止时间<br/><strong>{new Date(data.deadline_at).toLocaleString('zh-CN')}</strong></p> : <p>题数模式在 30 分钟无有效活动后中断；查询和刷新不会延长期限。</p>}<p>面试状态以服务端为准，页面会定期刷新。关闭标签页可能丢失未确认请求，请从面试记录核对已保存内容，勿重复提交。</p>{data.status === 'in_progress' && <button className={outline} disabled={action.busy || !!action.pending} onClick={terminate}>提前结束</button>}</aside></div>}
   </>
 }
 
@@ -137,6 +148,10 @@ function ReportBody({ report, full, questions }: { report: Report; full: boolean
 
 export function InterviewReportPage() {
   const { interviewId = '' } = useParams()
+  return <InterviewReport key={interviewId} interviewId={interviewId}/>
+}
+
+function InterviewReport({ interviewId }: { interviewId: string }) {
   const detail = useQuery({ queryKey: ['interviews', 'detail', interviewId], queryFn: () => interviewApi.detail(interviewId) })
   const terminal = !!detail.data && ['completed','terminated','interrupted'].includes(detail.data.status)
   const report = useQuery({ queryKey: ['interviews','report',interviewId], queryFn: () => interviewApi.report(interviewId), enabled: terminal })
