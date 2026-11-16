@@ -28,6 +28,7 @@ export function ChatPage({ topicId }: { topicId?: string }) {
   const activeId = useRef<string | null>(null)
   const refresh = () => request<Conversation[]>(`/conversations${topicId ? `?topic_id=${encodeURIComponent(topicId)}` : ''}`).then(setHistory)
   useEffect(() => {
+    if (activeId.current && activeId.current !== conversationId) controller.current?.abort()
     let live = true
     void request<Conversation[]>(`/conversations${topicId ? `?topic_id=${encodeURIComponent(topicId)}` : ''}`).then(async list => {
       if (!live) return
@@ -51,9 +52,10 @@ export function ChatPage({ topicId }: { topicId?: string }) {
     let userId: string = crypto.randomUUID()
     let finished = false
     let started = false
+    const abort = new AbortController(); controller.current = abort
     try {
       if (!id) {
-        const created = await request<Conversation>('/conversations', { method: 'POST', body: JSON.stringify({ title: content.slice(0, 100), topic_id: topicId ?? null }) })
+        const created = await request<Conversation>('/conversations', { method: 'POST', body: JSON.stringify({ title: content.slice(0, 100), topic_id: topicId ?? null }), signal: abort.signal })
         id = created.id
         activeId.current = id
         navigate(`${base}/${encodeURIComponent(id)}`, { replace: true })
@@ -61,7 +63,6 @@ export function ChatPage({ topicId }: { topicId?: string }) {
       } else activeId.current = id
       setInput('')
       setMessages(prev => [...prev, { id: userId, role: 'user', content, status: 'complete' }, { id: replyId, role: 'assistant', content: '', status: 'streaming' }])
-      const abort = new AbortController(); controller.current = abort
       const res = await fetch(`/api/v1/conversations/${encodeURIComponent(id)}/messages/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }), signal: abort.signal })
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null) as { detail?: string } | null
