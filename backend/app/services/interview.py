@@ -44,6 +44,10 @@ MAX_FOLLOWUPS = 2  # 已确认的每道主问题追问上限。
 TERMINAL = {'completed', 'terminated', 'interrupted'}
 
 
+def public_preset(snapshot: dict) -> dict:
+    return {key: snapshot[key] for key in ('id', 'kind', 'name', 'version') if key in snapshot}
+
+
 class InterviewConflict(ValueError):
     pass
 
@@ -212,7 +216,7 @@ class InterviewService:
             questions = (await self.db.scalars(select(InterviewQuestion).where(InterviewQuestion.interview_id == item.id).order_by(InterviewQuestion.main_number, InterviewQuestion.position))).all()
             answers = (await self.db.scalars(select(InterviewAnswer).where(InterviewAnswer.interview_id == item.id))).all()
             by_question = {a.question_id: {'id': a.id, 'kind': a.kind, 'content': a.content, 'submitted_at': a.submitted_at} for a in answers}
-            return {'id': item.id, 'status': item.status, 'mode': item.mode, 'preset': item.preset_snapshot, 'limit_type': item.limit_type, 'main_limit': item.main_limit, 'duration_seconds': item.duration_seconds, 'started_at': item.started_at, 'deadline_at': item.deadline_at, 'ended_at': item.ended_at, 'end_reason': item.end_reason, 'main_count': item.main_count, 'valid_main_count': item.valid_main_count, 'version': item.version, 'questions': [{'id': q.id, 'main_number': q.main_number, 'depth': q.depth, 'position': q.position, 'content': q.content, 'closed_at': q.closed_at, 'answer': by_question.get(q.id)} for q in questions]}
+            return {'id': item.id, 'status': item.status, 'mode': item.mode, 'preset': public_preset(item.preset_snapshot), 'limit_type': item.limit_type, 'main_limit': item.main_limit, 'duration_seconds': item.duration_seconds, 'started_at': item.started_at, 'deadline_at': item.deadline_at, 'ended_at': item.ended_at, 'end_reason': item.end_reason, 'main_count': item.main_count, 'valid_main_count': item.valid_main_count, 'version': item.version, 'questions': [{'id': q.id, 'main_number': q.main_number, 'depth': q.depth, 'position': q.position, 'content': q.content, 'closed_at': q.closed_at, 'answer': by_question.get(q.id)} for q in questions]}
 
     async def start(self, interview_id: str, key: str) -> dict:
         async with self.db.begin():

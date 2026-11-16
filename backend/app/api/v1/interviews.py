@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.interview import Interview, InterviewPreset, InterviewQuestionBank
-from app.services.interview import InterviewConflict, InterviewService, recommended_rules
+from app.services.interview import InterviewConflict, InterviewService, public_preset, recommended_rules
 
 class InterviewRoute(APIRoute):
     def get_route_handler(self):
@@ -89,7 +89,7 @@ async def list_interviews(db: Database, status: Literal['completed','incomplete'
     if status:
         stmt = stmt.where(Interview.status.in_(['terminated','interrupted']) if status == 'incomplete' else Interview.status == status)
     items = (await db.scalars(stmt)).all()
-    return [{'id': i.id, 'status': i.status, 'mode': i.mode, 'preset': i.preset_snapshot, 'created_at': i.created_at, 'ended_at': i.ended_at} for i in items]
+    return [{'id': i.id, 'status': i.status, 'mode': i.mode, 'preset': public_preset(i.preset_snapshot), 'created_at': i.created_at, 'ended_at': i.ended_at} for i in items]
 
 
 @router.get('/interviews/{interview_id}')
