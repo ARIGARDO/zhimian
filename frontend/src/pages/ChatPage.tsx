@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -15,60 +16,97 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function ChatPage({ topicId }: { topicId?: string }) {
+  const { conversationId } = useParams()
+  const navigate = useNavigate()
+  const base = topicId ? `/learn/topics/${encodeURIComponent(topicId)}/chat` : '/assistant'
   const [history, setHistory] = useState<Conversation[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const controller = useRef<AbortController | null>(null)
+  const activeId = useRef<string | null>(null)
   const refresh = () => request<Conversation[]>(`/conversations${topicId ? `?topic_id=${encodeURIComponent(topicId)}` : ''}`).then(setHistory)
-  useEffect(() => { void refresh().catch(e => setError(String(e))); return () => controller.current?.abort() }, [topicId])
-  const open = async (id: string) => {
-    try { setMessages(await request<Message[]>(`/conversations/${id}/messages`)); setSelected(id); setError('') }
-    catch (e) { setError(String(e)) }
-  }
+  useEffect(() => {
+    let live = true
+    void request<Conversation[]>(`/conversations${topicId ? `?topic_id=${encodeURIComponent(topicId)}` : ''}`).then(async list => {
+      if (!live) return
+      setHistory(list)
+      if (!conversationId) { setMessages([]); setError(''); return }
+      if (!list.some(c => c.id === conversationId)) { setMessages([]); setError('会话不存在或不属于当前范围'); return }
+      if (activeId.current === conversationId) return
+      const data = await request<Message[]>(`/conversations/${encodeURIComponent(conversationId)}/messages`)
+      if (live) { setMessages(data); setError('') }
+    }).catch(e => { if (live) setError(e instanceof Error ? e.message : '加载失败') })
+    return () => { live = false }
+  }, [topicId, conversationId])
+  useEffect(() => () => controller.current?.abort(), [topicId])
+
   const send = async () => {
     const content = input.trim()
     if (!content || busy) return
     setBusy(true); setError('')
-    let id = selected
+    let id = conversationId
+    let replyId: string = crypto.randomUUID()
+    let userId: string = crypto.randomUUID()
+    let finished = false
+    let started = false
     try {
       if (!id) {
         const created = await request<Conversation>('/conversations', { method: 'POST', body: JSON.stringify({ title: content.slice(0, 100), topic_id: topicId ?? null }) })
-        id = created.id; setSelected(id); await refresh()
-      }
+        id = created.id
+        activeId.current = id
+        navigate(`${base}/${encodeURIComponent(id)}`, { replace: true })
+        void refresh().catch(() => undefined)
+      } else activeId.current = id
       setInput('')
-      const replyId = crypto.randomUUID()
-      setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'user', content, status: 'complete' }, { id: replyId, role: 'assistant', content: '', status: 'streaming' }])
+      setMessages(prev => [...prev, { id: userId, role: 'user', content, status: 'complete' }, { id: replyId, role: 'assistant', content: '', status: 'streaming' }])
       const abort = new AbortController(); controller.current = abort
-      const res = await fetch(`/api/v1/conversations/${id}/messages/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }), signal: abort.signal })
-      if (!res.ok || !res.body) throw new Error(`发送失败（${res.status}）`)
+      const res = await fetch(`/api/v1/conversations/${encodeURIComponent(id)}/messages/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }), signal: abort.signal })
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => null) as { detail?: string } | null
+        throw new Error(body?.detail || `发送失败（${res.status}）`)
+      }
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
-        let boundary: number
-        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-          const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2)
-          const kind = frame.match(/^event: (.+)$/m)?.[1]; const data = frame.match(/^data: (.+)$/m)?.[1]
+        buffer += decoder.decode(value, { stream: true })
+        let match: RegExpMatchArray | null
+        while ((match = buffer.match(/\r?\n\r?\n/))) {
+          const boundary = match.index!; const frame = buffer.slice(0, boundary).replace(/\r\n/g, '\n'); buffer = buffer.slice(boundary + match[0].length)
+          const kind = frame.match(/^event: ?(.+)$/m)?.[1]; const data = frame.match(/^data: ?(.+)$/m)?.[1]
           if (!data) continue
-          const payload = JSON.parse(data) as { content?: string; message?: string }
-          if (kind === 'delta') setMessages(prev => prev.map(m => m.id === replyId ? { ...m, content: m.content + (payload.content ?? '') } : m))
-          if (kind === 'error') setError(payload.message ?? '模型请求失败')
+          const payload = JSON.parse(data) as { id?: string; user_id?: string; content?: string; message?: string }
+          if (kind === 'start' && payload.id && payload.user_id) {
+            started = true
+            const previousReply = replyId; const previousUser = userId
+            replyId = payload.id; userId = payload.user_id
+            const actualReply = replyId; const actualUser = userId
+            setMessages(prev => prev.map(m => m.id === previousReply ? { ...m, id: actualReply } : m.id === previousUser ? { ...m, id: actualUser } : m))
+          }
+          if (kind === 'delta') { const target = replyId; setMessages(prev => prev.map(m => m.id === target ? { ...m, content: m.content + (payload.content ?? '') } : m)) }
+          if (kind === 'done') { finished = true; const target = replyId; setMessages(prev => prev.map(m => m.id === target ? { ...m, status: 'complete' } : m)) }
+          if (kind === 'error') { finished = true; const target = replyId; setMessages(prev => prev.map(m => m.id === target ? { ...m, status: 'error' } : m)); setError(payload.message ?? '模型请求失败') }
         }
       }
+      if (!finished) throw new Error('连接中断，请刷新查看已保存的回复')
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === 'AbortError')) setError(e instanceof Error ? e.message : '发送失败')
-    } finally { controller.current = null; setBusy(false); void refresh().catch(() => undefined) }
+      const cancelled = e instanceof DOMException && e.name === 'AbortError'
+      const target = replyId; const pendingUser = userId
+      setMessages(prev => started ? prev.map(m => m.id === target ? { ...m, status: cancelled ? 'cancelled' : 'error' } : m) : prev.filter(m => m.id !== target && m.id !== pendingUser))
+      if (!cancelled) setError(e instanceof Error ? e.message : '发送失败')
+    } finally {
+      controller.current = null; activeId.current = null; setBusy(false)
+      void refresh().catch(() => undefined)
+    }
   }
   const remove = async (id: string) => {
-    try { await request<void>(`/conversations/${id}`, { method: 'DELETE' }); if (selected === id) { setSelected(null); setMessages([]) }; await refresh() }
+    try { await request<void>(`/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }); if (conversationId === id) navigate(base); await refresh() }
     catch (e) { setError(String(e)) }
   }
   return <div className="chat-page"><div className="page-head"><div className="eyebrow">AI ASSISTANT</div><h1>{topicId ? '专题 AI 助手' : 'AI 问答助手'}</h1><p>{topicId ? '围绕当前专题提问，历史记录按专题保存。' : '发送第一条消息后创建会话。'}</p></div>
-    <div className="chat-layout"><aside className="surface-card chat-history"><button className="app-button app-button-outline" disabled={busy} onClick={() => { setSelected(null); setMessages([]); setError('') }}>＋ 新会话</button><h3>历史记录</h3>{history.map(c => <div className="chat-history-row" key={c.id}><button disabled={busy} onClick={() => void open(c.id)} aria-current={selected === c.id}>{c.title}</button><button disabled={busy} aria-label={`删除 ${c.title}`} onClick={() => { if (window.confirm('确定删除此会话及其消息？')) void remove(c.id) }}>删除</button></div>)}</aside>
-      <section className="surface-card chat-main" aria-label="聊天内容"><div className="chat-messages">{messages.length === 0 && <p>输入问题，开始对话。</p>}{messages.map((m, i) => <div key={`${m.id}-${i}`} className={`chat-message ${m.role}`}><strong>{m.role === 'user' ? '你' : 'AI 助手'}</strong><div className="article-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>{['cancelled', 'error'].includes(m.status) && <small>{m.status === 'cancelled' ? '已停止' : '生成失败'}</small>}</div>)}</div>
+    <div className="chat-layout"><aside className="surface-card chat-history"><button className="app-button app-button-outline" disabled={busy} onClick={() => navigate(base)}>＋ 新会话</button><h3>历史记录</h3>{history.map(c => <div className="chat-history-row" key={c.id}><button disabled={busy} onClick={() => navigate(`${base}/${encodeURIComponent(c.id)}`)} aria-current={conversationId === c.id}>{c.title}</button><button disabled={busy} aria-label={`删除 ${c.title}`} onClick={() => { if (window.confirm('确定删除此会话及其消息？')) void remove(c.id) }}>删除</button></div>)}</aside>
+      <section className="surface-card chat-main" aria-label="聊天内容"><div className="chat-messages">{messages.length === 0 && <p>输入问题，开始对话。</p>}{messages.map(m => <div key={m.id} className={`chat-message ${m.role}`}><strong>{m.role === 'user' ? '你' : 'AI 助手'}</strong><div className="article-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>{['cancelled', 'error', 'streaming'].includes(m.status) && <small>{m.status === 'cancelled' ? '已停止' : m.status === 'error' ? '生成失败' : '生成中'}</small>}</div>)}</div>
         {error && <div className="alert error" role="alert">{error}</div>}<div className="chat-compose"><textarea aria-label="输入问题" value={input} onChange={e => setInput(e.target.value)} placeholder="输入你的问题" maxLength={12000}/><div>{busy ? <button className="app-button app-button-outline" onClick={() => controller.current?.abort()}>停止生成</button> : <button className="app-button app-button-primary" disabled={!input.trim()} onClick={() => void send()}>发送</button>}</div></div></section></div></div>
 }

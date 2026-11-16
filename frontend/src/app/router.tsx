@@ -17,8 +17,8 @@ export function AppRouter() {
       <Route index element={<HomePage />} />
       <Route path="learn" element={<LearnCatalogPage />} />
       <Route path="learn/topics/:topicId" element={<TopicPage />} />
-      <Route path="learn/topics/:topicId/chat" element={<TopicChat />} />
-      <Route path="assistant" element={<ChatPage />} />
+      <Route path="learn/topics/:topicId/chat/:conversationId?" element={<TopicChat />} />
+      <Route path="assistant/:conversationId?" element={<ChatPage />} />
       {['interviews','interviews/new','knowledge','tasks','growth','settings','*'].map(path =>
         <Route key={path} path={path} element={<ComingSoonPage />} />)}
     </Route>
