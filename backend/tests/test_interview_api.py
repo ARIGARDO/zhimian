@@ -90,3 +90,48 @@ async def test_api_internal_errors_are_sanitized(monkeypatch):
             assert result.status_code == 500 and result.json()=={'detail':'服务器内部错误'}
     finally:
         app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_legacy_and_role_creation_compatibility_baseline(tmp_path):
+    """旧版创建不冒充审核版；审核版岗位和混合题库仍被拒绝。"""
+    engine=create_async_engine(f"sqlite+aiosqlite:///{tmp_path/'compat.db'}")
+    factory=async_sessionmaker(engine,expire_on_commit=False)
+    async with engine.begin() as conn: await conn.run_sync(Base.metadata.create_all)
+    async with factory() as db:
+        async with db.begin():
+            for pid,kind in [('legacy','bank'),('legacyrole','role'),('role','role'),('reviewed','bank'),('mixed','bank')]:
+                db.add(InterviewPreset(id=pid,kind=kind,name=pid,version=1,active=True,config={}))
+            await db.flush()
+            for pid in ('legacy','legacyrole','role','reviewed','mixed'):
+                for n in range(3):
+                    extra={} if pid in ('legacy','legacyrole') or (pid=='mixed' and n==0) else dict(content_code=f'T{n}',difficulty='basic',sort_order=n,review_status='approved',reviewed_by='test',reviewed_at=datetime.now(timezone.utc),review_material=TEST_MATERIAL)
+                    db.add(InterviewQuestionBank(id=f'{pid}{n}',preset_id=pid,content='测试题',topic='test',version=1,active=True,**extra))
+    async def override():
+        async with factory() as db: yield db
+    app.dependency_overrides[get_db]=override
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test/api/v1') as c:
+            for pid,status in [('legacy',201),('legacyrole',201),('role',409),('reviewed',201),('mixed',409)]:
+                body={'preset_id':pid,'mode':'practice','limit_type':'count','main_limit':3}
+                if pid=='legacyrole': body['jd']='测试岗位描述'
+                response=await c.post('/interviews',json=body,headers={'Idempotency-Key':'create-'+pid})
+                assert response.status_code==status
+                assert '测试要点' not in response.text
+                if status==201:
+                    async with factory() as db:
+                        item=await db.get(Interview,response.json()['id'])
+                        assert item.config_snapshot['evaluation_policy']==('reviewed-v1' if pid=='reviewed' else 'legacy-v1')
+                        if pid=='legacyrole': assert item.jd=='测试岗位描述'
+                    if pid in ('legacy','legacyrole'):
+                        path='/interviews/'+response.json()['id']
+                        assert (await c.post(path+'/start',headers={'Idempotency-Key':'s'})).status_code==200
+                        q=(await c.post(path+'/questions/next',headers={'Idempotency-Key':'q'})).json()
+                        a=(await c.post(path+'/answers',json={'question_id':q['id'],'content':'有效回答'},headers={'Idempotency-Key':'a'})).json()
+                        from app.services.interview_ai import InterviewAIService
+                        async with factory() as db:
+                            item=await db.get(Interview,response.json()['id'])
+                            records=await InterviewAIService(factory)._context(db,item,'feedback',a['id'])
+                            assert records[0]['answer']=='有效回答' and 'review_material' not in records[0]
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()

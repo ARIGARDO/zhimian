@@ -202,15 +202,22 @@ class InterviewService:
             preset_snapshot = {'id': preset.id, 'kind': preset.kind, 'name': preset.name, 'version': preset.version}
             reviewed = any(q.content_code is not None for q in questions)
             if not reviewed:
-                raise InterviewConflict('题库尚无已审核版本')
-            from app.services.question_version import question_digest, question_payload
-            if preset.kind != 'bank' or any(q.content_code is None or q.review_status != 'approved' or not q.reviewed_by or not q.reviewed_at for q in questions):
-                raise InterviewConflict('题库包含未审核或不兼容版本')
-            questions.sort(key=lambda q: ({'basic':0, 'intermediate':1, 'challenge':2}.get(q.difficulty, 9), q.sort_order, q.content_code))
-            plan = [{'id':q.id, 'content':q.content, 'topic':q.topic, 'version':q.version,
-                     'content_code':q.content_code, 'digest':question_digest(question_payload(q))} for q in questions]
-            config_snapshot = {'question_plan':plan, 'evaluation_policy':'reviewed-v1'}
-            preset_snapshot['evaluation_policy'] = 'reviewed-v1'
+                # 旧题库保留原有出题顺序和评价路径，不标记为已审核。
+                plan = [{'id':q.id, 'content':q.content, 'topic':q.topic, 'version':q.version} for q in questions]
+                config_snapshot = {'question_plan':plan, 'evaluation_policy':'legacy-v1'}
+            else:
+                from app.services.question_version import question_digest, question_payload, validate_review_capacity
+                if preset.kind != 'bank' or any(q.content_code is None or q.review_status != 'approved' or not q.reviewed_by or not q.reviewed_at for q in questions):
+                    raise InterviewConflict('题库包含未审核或不兼容版本')
+                questions.sort(key=lambda q: ({'basic':0, 'intermediate':1, 'challenge':2}.get(q.difficulty, 9), q.sort_order, q.content_code))
+                plan = []
+                for q in questions:
+                    payload = question_payload(q)
+                    validate_review_capacity(payload)
+                    plan.append({'id':q.id, 'content':q.content, 'topic':q.topic, 'version':q.version,
+                                 'content_code':q.content_code, 'digest':question_digest(payload)})
+                config_snapshot = {'question_plan':plan, 'evaluation_policy':'reviewed-v1'}
+                preset_snapshot['evaluation_policy'] = 'reviewed-v1'
             snapshot = self._validate_configuration(mode, limit_type, main_limit, duration_seconds, preset_snapshot, config_snapshot, jd)
             item = Interview(status='pending', create_key=key, create_hash=digest, preset_id=preset.id, mode=mode, limit_type=limit_type, main_limit=main_limit, duration_seconds=duration_seconds, preset_snapshot=preset_snapshot, config_snapshot=snapshot, jd=jd, main_count=0, valid_main_count=0, version=0)
             self.db.add(item); await self.db.flush()

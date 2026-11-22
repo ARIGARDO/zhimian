@@ -102,7 +102,7 @@ async def test_budget_counts_all_followups(tmp_path,count):
     await engine.dispose()
 
 @pytest.mark.asyncio
-async def test_review_material_counts_towards_budget_without_calling_model(tmp_path):
+async def test_review_material_counts_towards_budget_without_calling_model(tmp_path, monkeypatch):
     engine=create_async_engine(f"sqlite+aiosqlite:///{tmp_path/'material.db'}")
     async with engine.begin() as conn: await conn.run_sync(Base.metadata.create_all)
     factory=async_sessionmaker(engine,expire_on_commit=False)
@@ -115,6 +115,8 @@ async def test_review_material_counts_towards_budget_without_calling_model(tmp_p
                 db.add(InterviewQuestionBank(id=f'q{n}',preset_id='p',content='题',topic='test',version=1,active=True,content_code=f'T{n}',difficulty='basic',sort_order=n,review_status='approved',reviewed_by='test',reviewed_at=datetime.now(timezone.utc),review_material=large))
     async def call(name,*args,**kw):
         async with factory() as db: return await getattr(InterviewService(db,recommended_rules()),name)(*args,**kw)
+    # 模拟旧数据或绕过发布检查，验证评价时仍有完整预算防线。
+    monkeypatch.setattr('app.services.question_version.validate_review_capacity', lambda _: None)
     cid=(await call('create_from_preset',key='create',preset_id='p',mode='practice',limit_type='count',main_limit=3,duration_seconds=None,jd=None))['id']
     await call('start',cid,'start'); q=await call('next_question',cid,'q'); a=await call('answer',cid,'a',q['id'],'有效回答')
     calls=[]
@@ -135,3 +137,31 @@ def test_incomplete_output_cannot_be_saved_as_full_report(count):
     raw=json.dumps({'summary':'总结','overall_score':70.0,'items':[{'answer_id':'a0','review':'反馈'}]})
     with pytest.raises(ModelError,match='格式'):
         parse_result('full',raw,ids)
+
+
+def test_material_capacity_unicode_boundaries():
+    from app.services.question_version import MAX_REVIEW_MATERIAL_CHARS, validate_review_capacity
+    overhead=len(json.dumps({'note':''},ensure_ascii=False,sort_keys=True,separators=(',', ':')))
+    limit=MAX_REVIEW_MATERIAL_CHARS-overhead
+    validate_review_capacity({'material':{'note':'界'*limit}})
+    with pytest.raises(InterviewConflict,match='发布容量'):
+        validate_review_capacity({'material':{'note':'界'*(limit+1)}})
+
+
+@pytest.mark.asyncio
+async def test_oversized_approved_material_rejects_new_interview(tmp_path):
+    engine=create_async_engine(f"sqlite+aiosqlite:///{tmp_path/'limit.db'}")
+    async with engine.begin() as conn: await conn.run_sync(Base.metadata.create_all)
+    factory=async_sessionmaker(engine,expire_on_commit=False)
+    async with factory() as db:
+        async with db.begin():
+            db.add(InterviewPreset(id='p',kind='bank',name='测试',version=1,active=True,config={}))
+            await db.flush()
+            for n in range(3):
+                db.add(InterviewQuestionBank(id=f'q{n}',preset_id='p',content='题',topic='test',version=1,active=True,content_code=f'T{n}',difficulty='basic',sort_order=n,review_status='approved',reviewed_by='test',reviewed_at=datetime.now(timezone.utc),review_material={**MATERIAL,'key_points':['界'*1201]}))
+    async with factory() as db:
+        with pytest.raises(InterviewConflict,match='发布容量'):
+            await InterviewService(db,recommended_rules()).create_from_preset(key='create',preset_id='p',mode='practice',limit_type='count',main_limit=3,duration_seconds=None,jd=None)
+    async with factory() as db:
+        assert not (await db.scalars(select(Interview))).all()
+    await engine.dispose()

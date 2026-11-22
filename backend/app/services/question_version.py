@@ -4,6 +4,16 @@ import json
 
 from app.services.interview import InterviewConflict
 
+# 允许 10 道主问题各携带一份材料时，仍为题目与回答预留约一半的字符预算。
+MAX_REVIEW_MATERIAL_CHARS = 1200
+
+
+def validate_review_capacity(payload):
+    """发布前检查；字符数是兜底限制，不是 Token 或费用保证。"""
+    material = json.dumps(payload['material'], ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    if len(material) > MAX_REVIEW_MATERIAL_CHARS:
+        raise InterviewConflict('题目评价材料超出发布容量，请缩减后重新审核')
+
 
 def question_payload(question):
     material = question.review_material
