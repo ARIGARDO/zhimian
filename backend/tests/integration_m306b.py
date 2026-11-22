@@ -19,18 +19,18 @@ from app.tools.import_interview_draft import GUARD, import_draft, validate_url
 
 url=os.environ['M306B_TEST_DATABASE_URL']; validate_url(url)
 env=dict(os.environ,DATABASE_URL=url)
-subprocess.run([sys.executable,'-m','alembic','upgrade','head'],env=env,check=True)
 engine=create_async_engine(url,poolclass=NullPool); factory=async_sessionmaker(engine,expire_on_commit=False)
 manifest='../docs/interview/M3-06A-question-manifest.json'
+async def check_guard():
+    # 测试脚本也须先检查隔离标记，再执行迁移或其他写入。
+    async with engine.connect() as conn:
+        if not await conn.scalar(text("SELECT to_regclass('public.m306b_isolation_guard')")):
+            raise ValueError('缺少隔离测试数据库标记')
+        if await conn.scalar(text('SELECT marker FROM public.m306b_isolation_guard LIMIT 1')) != GUARD:
+            raise ValueError('隔离测试数据库标记不匹配')
+asyncio.run(check_guard())
+subprocess.run([sys.executable,'-m','alembic','upgrade','head'],env=env,check=True)
 async def main():
-    try:
-        await import_draft(url,manifest)
-        raise AssertionError('缺少隔离标记仍执行导入')
-    except ValueError as exc:
-        assert '隔离' in str(exc)
-    async with engine.begin() as conn:
-        await conn.execute(text('CREATE TABLE m306b_isolation_guard (marker text NOT NULL)'))
-        await conn.execute(text('INSERT INTO m306b_isolation_guard VALUES (:marker)'),{'marker':GUARD})
     async with factory() as db:
         historic=await InterviewService(db,recommended_rules()).create(mode='practice',limit_type='count',main_limit=3,duration_seconds=None,preset_snapshot={},config_snapshot={})
     async with factory() as db:

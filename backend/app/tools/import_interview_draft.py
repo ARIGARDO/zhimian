@@ -17,7 +17,8 @@ GUARD = 'zhimian-m306b-isolated-only'
 def validate_url(url):
     parsed = urlsplit(url)
     name = parsed.path.lstrip('/')
-    if parsed.scheme != 'postgresql+asyncpg' or parsed.hostname not in {'127.0.0.1', '::1'} or not name.startswith('zhimian_m306b_') or not name.replace('_', '').isalnum():
+    # SQLAlchemy 的查询参数可以覆盖 host/database；禁止所有查询参数及片段。
+    if parsed.scheme != 'postgresql+asyncpg' or parsed.query or parsed.fragment or parsed.hostname not in {'127.0.0.1', '::1'} or not name.startswith('zhimian_m306b_') or not name.replace('_', '').isalnum():
         raise ValueError('仅允许本机显式命名的隔离 PostgreSQL 测试库')
 
 
@@ -51,7 +52,7 @@ async def import_draft(url, path):
         async with engine.begin() as conn:
             guard=await conn.scalar(text("SELECT to_regclass('public.m306b_isolation_guard')"))
             if not guard: raise ValueError('缺少隔离测试数据库标记')
-            marker=await conn.scalar(text('SELECT marker FROM m306b_isolation_guard LIMIT 1'))
+            marker=await conn.scalar(text('SELECT marker FROM public.m306b_isolation_guard LIMIT 1'))
             if marker != GUARD: raise ValueError('隔离测试数据库标记不匹配')
             await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('m306b-draft-import'))"))
             session=async_sessionmaker(bind=conn,expire_on_commit=False)()

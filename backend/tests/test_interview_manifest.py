@@ -18,6 +18,9 @@ def test_manifest_complete_and_bounded():
     'postgresql+asyncpg://a:b@127.0.0.1/zhimian',
     'postgresql+asyncpg://a:b@192.0.2.1/zhimian_m306b_test',
     'sqlite+aiosqlite:///zhimian_m306b_test',
+    'postgresql+asyncpg://a:b@127.0.0.1/zhimian_m306b_test?host=remote.example:5432',
+    'postgresql+asyncpg://a:b@127.0.0.1/zhimian_m306b_test?database=production',
+    'postgresql+asyncpg://a:b@127.0.0.1/zhimian_m306b_test#fragment',
 ])
 def test_reject_nonisolated_urls(url):
     with pytest.raises(ValueError): validate_url(url)
