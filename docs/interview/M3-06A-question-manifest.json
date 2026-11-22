@@ -1,0 +1,678 @@
+{
+  "manifest_version": "v1.0-draft",
+  "presets": [
+    {
+      "id": "bank-python-v1",
+      "kind": "bank",
+      "name": "Python 后端",
+      "version": 1
+    },
+    {
+      "id": "bank-ai-v1",
+      "kind": "bank",
+      "name": "AI 应用",
+      "version": 1
+    }
+  ],
+  "questions": [
+    {
+      "id": "qb-p01-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P01",
+      "version": 1,
+      "content": "异步函数中调用阻塞数据库驱动会发生什么？如何处理？",
+      "topic": "asyncio、阻塞 I/O",
+      "difficulty": "basic",
+      "sort_order": 1,
+      "material": {
+        "objectives": "理解事件循环阻塞及驱动选型",
+        "key_points": [
+          "阻塞调用占用事件循环线程",
+          "其他协程无法及时运行",
+          "优先选择异步驱动",
+          "必要时使用受控线程池并配置超时和连接池"
+        ],
+        "anchors": {
+          "complete": "解释阻塞、两种处理及资源边界",
+          "adequate": "指出阻塞并给出可行方案",
+          "partial": "知道性能受影响但机制或方案不清",
+          "insufficient": "认为阻塞调用不会影响事件循环"
+        },
+        "alternatives": [
+          "移至独立工作进程并说明部署成本"
+        ],
+        "misconceptions": [
+          "只给同步函数加 async",
+          "使用无限线程池"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p02-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P02",
+      "version": 1,
+      "content": "如何设计接口的幂等提交，防止客户端重试产生重复订单？",
+      "topic": "幂等键、事务",
+      "difficulty": "intermediate",
+      "sort_order": 2,
+      "material": {
+        "objectives": "识别并发、重试和事务边界",
+        "key_points": [
+          "客户端提供幂等键",
+          "唯一约束或原子认领",
+          "保存请求摘要和结果",
+          "同键不同请求拒绝",
+          "外部调用单独处理重复"
+        ],
+        "anchors": {
+          "complete": "覆盖并发、请求冲突、事务和外部副作用",
+          "adequate": "能用唯一键及持久结果防重",
+          "partial": "只有请求标识但缺少并发保障",
+          "insufficient": "只依赖按钮禁用或客户端计时"
+        },
+        "alternatives": [
+          "业务订单号作为作用域明确的唯一幂等键"
+        ],
+        "misconceptions": [
+          "宣称外部调用天然恰好一次"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p03-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P03",
+      "version": 1,
+      "content": "数据库索引为什么可能没有改善查询性能？",
+      "topic": "索引、执行计划",
+      "difficulty": "intermediate",
+      "sort_order": 3,
+      "material": {
+        "objectives": "依据执行证据分析查询",
+        "key_points": [
+          "选择性不足",
+          "联合索引顺序与查询条件不匹配",
+          "统计信息影响执行计划",
+          "回表或排序成本",
+          "查看实际执行计划及数据分布"
+        ],
+        "anchors": {
+          "complete": "结合计划和数据解释多种原因",
+          "adequate": "指出索引使用条件并提出验证",
+          "partial": "只列可能原因",
+          "insufficient": "认为添加索引必然加速"
+        },
+        "alternatives": [
+          "小表顺序扫描更便宜或查询受锁等待影响"
+        ],
+        "misconceptions": [
+          "仅凭索引存在判断是否被使用"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p04-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P04",
+      "version": 1,
+      "content": "热点缓存 Key 过期时，如何降低大量并发请求同时访问数据库的风险？",
+      "topic": "缓存击穿、锁",
+      "difficulty": "intermediate",
+      "sort_order": 4,
+      "material": {
+        "objectives": "设计热点缓存重建的并发保护",
+        "key_points": [
+          "同一热点 Key 使用互斥重建或请求合并",
+          "设置锁超时、释放和失败恢复",
+          "按需提前刷新或短暂读取旧值",
+          "回源失败时限流或降级并说明一致性取舍"
+        ],
+        "anchors": {
+          "complete": "覆盖竞争、锁失效和降级",
+          "adequate": "给出可行并发控制",
+          "partial": "提出缓存但未处理同时重建",
+          "insufficient": "忽略失效时数据库压力"
+        },
+        "alternatives": [
+          "提前刷新或允许短时间读取旧值并说明边界"
+        ],
+        "misconceptions": [
+          "锁永久有效",
+          "混淆单个热点 Key 击穿与大量 Key 同时过期造成的雪崩"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p05-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P05",
+      "version": 1,
+      "content": "一个请求进入 FastAPI 后，通常会经过哪些处理环节？数据库会话应如何管理？",
+      "topic": "路由、校验、依赖注入",
+      "difficulty": "basic",
+      "sort_order": 5,
+      "material": {
+        "objectives": "理解请求及依赖生命周期",
+        "key_points": [
+          "路由匹配",
+          "参数和请求体验证",
+          "依赖注入",
+          "处理函数与异常",
+          "响应序列化及资源清理"
+        ],
+        "anchors": {
+          "complete": "说明主要环节与异常清理",
+          "adequate": "说明校验、处理和会话释放",
+          "partial": "只描述处理函数",
+          "insufficient": "忽视校验与资源生命周期"
+        },
+        "alternatives": [
+          "通过中间件或上下文管理器管理会话并说明事务边界"
+        ],
+        "misconceptions": [
+          "请求结束后继续持有数据库会话"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p06-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P06",
+      "version": 1,
+      "content": "接口什么时候可能返回 HTTP 400、404、409、422 或 500？请各举一个例子。",
+      "topic": "HTTP 状态码",
+      "difficulty": "basic",
+      "sort_order": 6,
+      "material": {
+        "objectives": "区分客户端错误、状态冲突和服务端错误",
+        "key_points": [
+          "400 表示错误请求",
+          "404 表示资源不存在",
+          "409 表示状态或并发冲突",
+          "422 表示参数校验失败",
+          "500 表示未处理的服务端错误"
+        ],
+        "anchors": {
+          "complete": "区分五类并举贴切例子",
+          "adequate": "主要类别和例子正确",
+          "partial": "区分客户端与服务端错误但部分混淆",
+          "insufficient": "将所有失败统一视为 500"
+        },
+        "alternatives": [
+          "不同框架的 400 和 422 划分可不同，但接口契约应一致"
+        ],
+        "misconceptions": [
+          "把业务冲突当成资源不存在"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p07-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P07",
+      "version": 1,
+      "content": "SQLAlchemy 中 `flush`、`commit` 和 `rollback` 分别起什么作用？",
+      "topic": "SQLAlchemy、事务",
+      "difficulty": "basic",
+      "sort_order": 7,
+      "material": {
+        "objectives": "理解写入、提交和回滚",
+        "key_points": [
+          "flush 将待处理变更发送到数据库",
+          "commit 提交事务",
+          "rollback 回滚当前事务",
+          "flush 后仍可能失败或回滚",
+          "异常后正确清理会话状态"
+        ],
+        "anchors": {
+          "complete": "说明数据库可见性与失败恢复",
+          "adequate": "区分三种操作",
+          "partial": "只知道提交和回滚",
+          "insufficient": "认为 flush 等于永久提交"
+        },
+        "alternatives": [
+          "使用 begin 上下文管理事务并解释提交和异常行为"
+        ],
+        "misconceptions": [
+          "以为获得主键就意味着事务已提交"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p08-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P08",
+      "version": 1,
+      "content": "为什么不宜在数据库事务持锁期间等待外部 LLM API？可以怎样组织流程？",
+      "topic": "事务、锁、外部调用",
+      "difficulty": "intermediate",
+      "sort_order": 8,
+      "material": {
+        "objectives": "识别外部调用与数据库事务边界",
+        "key_points": [
+          "网络延迟造成锁等待及连接占用",
+          "短事务认领操作",
+          "事务外调用模型",
+          "重新加锁校验状态和所有者",
+          "处理幂等及失败恢复"
+        ],
+        "anchors": {
+          "complete": "覆盖认领、调用、校验和崩溃恢复",
+          "adequate": "说明短事务与事务外调用",
+          "partial": "只指出慢但无一致性方案",
+          "insufficient": "依赖长事务包住整个网络请求"
+        },
+        "alternatives": [
+          "现有进程使用租约执行，无须独立队列"
+        ],
+        "misconceptions": [
+          "释放锁后直接写结果而不检查终态"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p09-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P09",
+      "version": 1,
+      "content": "对已有生产数据的 PostgreSQL 数据库执行 Alembic 迁移前后，应如何降低风险？",
+      "topic": "Alembic、迁移",
+      "difficulty": "intermediate",
+      "sort_order": 9,
+      "material": {
+        "objectives": "理解非破坏迁移和数据验证",
+        "key_points": [
+          "核对迁移链及目标 revision",
+          "备份并演练恢复",
+          "先兼容后切换",
+          "在隔离数据库验证",
+          "检查数据完整性与锁影响"
+        ],
+        "anchors": {
+          "complete": "说明兼容、验证、回退及失败处置",
+          "adequate": "包含备份、预演和迁移后检查",
+          "partial": "只提备份",
+          "insufficient": "直接删除或覆盖现有数据"
+        },
+        "alternatives": [
+          "采用前向修复迁移并说明不能安全降级的情况"
+        ],
+        "misconceptions": [
+          "修改已执行的旧 revision 替代后续迁移"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-p10-v1",
+      "preset_id": "bank-python-v1",
+      "code": "P10",
+      "version": 1,
+      "content": "客户端提交请求后收到 HTTP 504，如何判断操作是否成功，并安全恢复？",
+      "topic": "504、幂等恢复",
+      "difficulty": "challenge",
+      "sort_order": 10,
+      "material": {
+        "objectives": "理解超时与结果未知",
+        "key_points": [
+          "504 不证明后端未执行",
+          "查询服务端状态",
+          "重试复用相同幂等键和请求体",
+          "后端持久化结果",
+          "区分代理、服务及上游超时"
+        ],
+        "anchors": {
+          "complete": "覆盖未知结果、并发重试和故障定位",
+          "adequate": "查询状态并同键重试",
+          "partial": "知道超时但重试策略不完整",
+          "insufficient": "每次换键重新创建"
+        },
+        "alternatives": [
+          "通过有唯一约束的业务标识查询并恢复"
+        ],
+        "misconceptions": [
+          "把 504 当作事务必然回滚"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a01-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A01",
+      "version": 1,
+      "content": "构建 RAG 时如何定位回答没有依据的问题？",
+      "topic": "召回、证据、评测",
+      "difficulty": "basic",
+      "sort_order": 1,
+      "material": {
+        "objectives": "区分数据、检索与生成故障",
+        "key_points": [
+          "核对原始文档",
+          "检查切分和召回",
+          "检查重排与上下文",
+          "检查引用及生成",
+          "分别评测各环节"
+        ],
+        "anchors": {
+          "complete": "能用证据分段定位",
+          "adequate": "检查召回及生成依据",
+          "partial": "只调整提示词",
+          "insufficient": "默认模型回答必然有依据"
+        },
+        "alternatives": [
+          "固定检索结果与生成条件做对照实验"
+        ],
+        "misconceptions": [
+          "只看最终答案不看检索证据"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a02-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A02",
+      "version": 1,
+      "content": "关键词检索和向量检索各有什么优势？如何融合？",
+      "topic": "混合检索、RRF",
+      "difficulty": "intermediate",
+      "sort_order": 2,
+      "material": {
+        "objectives": "理解两类召回的互补和融合",
+        "key_points": [
+          "关键词擅长精确词项",
+          "向量检索适合语义相似",
+          "可使用排序融合",
+          "评估召回、延迟和成本"
+        ],
+        "anchors": {
+          "complete": "解释互补、融合及评测",
+          "adequate": "说明两类优势和一种融合方式",
+          "partial": "只描述其中一种",
+          "insufficient": "认为向量检索完全取代关键词"
+        },
+        "alternatives": [
+          "对归一化分数加权并说明可比性"
+        ],
+        "misconceptions": [
+          "直接相加不同尺度的原始分数"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a03-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A03",
+      "version": 1,
+      "content": "Agent 调用外部工具时如何限制越权和恶意输入？",
+      "topic": "工具权限、注入",
+      "difficulty": "intermediate",
+      "sort_order": 3,
+      "material": {
+        "objectives": "识别模型、输入与工具信任边界",
+        "key_points": [
+          "遵循最小权限",
+          "服务端校验工具参数",
+          "敏感操作确认",
+          "执行隔离与审计",
+          "模型输出和检索内容不可信"
+        ],
+        "anchors": {
+          "complete": "覆盖权限、校验、确认和追踪",
+          "adequate": "提出服务端权限与参数检查",
+          "partial": "仅靠提示词",
+          "insufficient": "默认模型可安全决定任意权限"
+        },
+        "alternatives": [
+          "工具调用使用白名单和独立授权策略"
+        ],
+        "misconceptions": [
+          "把文档中的指令当作系统指令"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a04-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A04",
+      "version": 1,
+      "content": "如何评估模型应用改动是否改善了真实效果？",
+      "topic": "离线评测、质量和成本",
+      "difficulty": "intermediate",
+      "sort_order": 4,
+      "material": {
+        "objectives": "构造可复现的对照评估",
+        "key_points": [
+          "准备代表性测试集",
+          "固定基线和版本",
+          "比较质量与安全指标",
+          "衡量成本和延迟",
+          "人工抽检并回归"
+        ],
+        "anchors": {
+          "complete": "涵盖对照、分层样本和多指标",
+          "adequate": "设置基线、测试集及人工检查",
+          "partial": "只用少量主观例子",
+          "insufficient": "仅凭一次演示宣布改进"
+        },
+        "alternatives": [
+          "经授权并保护隐私后进行线上分组评估"
+        ],
+        "misconceptions": [
+          "只关注平均分忽视高风险样本"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a05-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A05",
+      "version": 1,
+      "content": "Embedding 如何用于相似度检索？相似度高是否一定意味着答案正确？",
+      "topic": "Embedding、相似度",
+      "difficulty": "basic",
+      "sort_order": 5,
+      "material": {
+        "objectives": "理解向量表示及其局限",
+        "key_points": [
+          "文本映射为向量",
+          "按相似度寻找候选",
+          "相似不等于事实正确",
+          "结果受模型、语料和切分影响"
+        ],
+        "anchors": {
+          "complete": "解释检索过程和多种局限",
+          "adequate": "说明向量召回及非真值判断",
+          "partial": "知道向量表示但说不清限制",
+          "insufficient": "将相似度当成事实正确率"
+        },
+        "alternatives": [
+          "结合关键词过滤或重排提高候选质量"
+        ],
+        "misconceptions": [
+          "把相似度阈值当作统一的正确概率"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a06-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A06",
+      "version": 1,
+      "content": "RAG 文档为什么需要切分？切分过大或过小会带来什么问题？",
+      "topic": "文档切分、上下文",
+      "difficulty": "basic",
+      "sort_order": 6,
+      "material": {
+        "objectives": "理解切分粒度与上下文质量",
+        "key_points": [
+          "适配检索及上下文预算",
+          "过大引入噪声",
+          "过小丢失语义",
+          "保留标题、来源及合理重叠",
+          "用样本评估"
+        ],
+        "anchors": {
+          "complete": "解释取舍并提出验证",
+          "adequate": "说明过大过小的问题",
+          "partial": "只知道有长度限制",
+          "insufficient": "认为切分粒度不会影响效果"
+        },
+        "alternatives": [
+          "根据标题或语义边界分层切分"
+        ],
+        "misconceptions": [
+          "所有文档固定同一字符数而不检查结构"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a07-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A07",
+      "version": 1,
+      "content": "模型返回 JSON 时，服务端如何验证并安全使用结果？",
+      "topic": "JSON、结构校验",
+      "difficulty": "basic",
+      "sort_order": 7,
+      "material": {
+        "objectives": "理解模型输出与业务约束的边界",
+        "key_points": [
+          "解析 JSON",
+          "按 schema 校验类型和字段",
+          "检查业务引用与状态",
+          "限制长度",
+          "失败时明确重试或报错"
+        ],
+        "anchors": {
+          "complete": "覆盖结构、业务约束及失败处理",
+          "adequate": "进行解析和 schema 校验",
+          "partial": "仅检查 JSON 能否解析",
+          "insufficient": "直接信任模型内容"
+        },
+        "alternatives": [
+          "使用类型化校验库结合服务端领域规则"
+        ],
+        "misconceptions": [
+          "JSON 格式正确就代表内容真实安全"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a08-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A08",
+      "version": 1,
+      "content": "模型流式回复中途断线时，前端和服务端如何处理已输出内容与消息状态？",
+      "topic": "SSE、断线恢复",
+      "difficulty": "intermediate",
+      "sort_order": 8,
+      "material": {
+        "objectives": "理解增量输出、终态及恢复",
+        "key_points": [
+          "明确消息 ID 与状态",
+          "区分增量、完成和错误事件",
+          "保存部分结果或失败状态",
+          "刷新重新读取",
+          "避免重复生成"
+        ],
+        "anchors": {
+          "complete": "覆盖事件、持久化、取消和恢复",
+          "adequate": "区分完成与断线并恢复状态",
+          "partial": "仅在前端显示错误",
+          "insufficient": "将断线当作成功完成"
+        },
+        "alternatives": [
+          "不保存部分文本但标记失败并允许安全重试，说明取舍"
+        ],
+        "misconceptions": [
+          "客户端断开必然代表上游已停止"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a09-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A09",
+      "version": 1,
+      "content": "模型操作失败后如何设计重试，同时控制重复调用和成本？",
+      "topic": "重试、幂等、成本",
+      "difficulty": "intermediate",
+      "sort_order": 9,
+      "material": {
+        "objectives": "认识操作幂等与成本边界",
+        "key_points": [
+          "区分可重试错误",
+          "设置尝试与时间上限",
+          "复用操作标识",
+          "限制上下文与输出",
+          "监控用量并配置供应商额度"
+        ],
+        "anchors": {
+          "complete": "说明幂等落库与外部调用可能重复",
+          "adequate": "设置有限重试和输出限制",
+          "partial": "只说失败重试",
+          "insufficient": "无限重试或宣称字符数决定精确成本"
+        },
+        "alternatives": [
+          "针对限流使用有上限退避并结合业务截止时间"
+        ],
+        "misconceptions": [
+          "把字符上限当作精确费用上限"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    },
+    {
+      "id": "qb-a10-v1",
+      "preset_id": "bank-ai-v1",
+      "code": "A10",
+      "version": 1,
+      "content": "AI 对模拟面试回答做评价时，如何降低虚构、评分不稳定和不公平的风险？",
+      "topic": "评价可靠性、公平性",
+      "difficulty": "challenge",
+      "sort_order": 10,
+      "material": {
+        "objectives": "识别评价证据、规则版本和人工复核",
+        "key_points": [
+          "评价关联实际题目与回答",
+          "使用审核且版本固定的参考材料",
+          "接受合理替代答案",
+          "分层抽样人工复核",
+          "检查一致性与偏差并标明局限"
+        ],
+        "anchors": {
+          "complete": "覆盖证据、版本、人工复核和偏差",
+          "adequate": "要求基于作答并进行人工检查",
+          "partial": "只强调使用更强模型",
+          "insufficient": "将模型评分视为客观能力结论"
+        },
+        "alternatives": [
+          "先做无分数文字反馈并经人工审核逐步验证量表"
+        ],
+        "misconceptions": [
+          "把参考要点当作唯一答案",
+          "将单次模型输出当作准确性证明"
+        ]
+      },
+      "content_status": "待最终启用确认"
+    }
+  ]
+}
