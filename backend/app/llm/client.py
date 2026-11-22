@@ -33,6 +33,8 @@ async def stream_chat(settings: Settings, messages: list[dict[str, str]], *, max
                     event = json.loads(data)
                     choices = event.get("choices", [])
                     if choices:
+                        if choices[0].get("finish_reason") == "length":
+                            raise ModelError("模型输出超出预算，请调整输出上限后重试")
                         content = choices[0].get("delta", {}).get("content")
                         if isinstance(content, str):
                             yield content

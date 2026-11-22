@@ -11,6 +11,8 @@ from sqlalchemy.pool import NullPool
 
 from app.models.interview import Interview, InterviewPreset, InterviewQuestionBank
 
+TEST_MATERIAL = {'objectives':'测试目标', 'key_points':['测试要点'], 'anchors':{'complete':'完整','adequate':'基本','partial':'部分','insufficient':'不足'}, 'alternatives':['替代'], 'misconceptions':['误区']}
+
 test_db=os.environ['M303_TEST_DB']
 if not test_db.startswith('zhimian_m303_') or not test_db.replace('_', '').isalnum():
     raise ValueError('仅允许专用的 zhimian_m303_ 临时测试数据库')
@@ -22,7 +24,7 @@ async def setup():
     async with factory() as db:
         db.add(InterviewPreset(id='m303-test-only',kind='bank',name='测试专用',version=1,active=True,config={}))
         await db.flush()
-        for i in range(4): db.add(InterviewQuestionBank(id=f'm303-{i}',preset_id='m303-test-only',content=f'隔离测试题{i}',topic='test',version=1,active=True))
+        for i in range(4): db.add(InterviewQuestionBank(id=f'm303-{i}',preset_id='m303-test-only',content=f'隔离测试题{i}',topic='test',version=1,active=True,content_code=f'T{i}',difficulty='basic',sort_order=i,review_status='approved',reviewed_by='test',reviewed_at=datetime.now(timezone.utc),review_material=TEST_MATERIAL))
         await db.commit()
 asyncio.run(setup())
 processes=[]

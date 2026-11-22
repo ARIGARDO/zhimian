@@ -1,6 +1,6 @@
 """模拟面试独立数据结构；不复用普通聊天。"""
 from datetime import datetime
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 from app.models.chat import new_id
@@ -25,7 +25,21 @@ class InterviewQuestionBank(Base):
     topic: Mapped[str] = mapped_column(String(100), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    __table_args__ = (CheckConstraint('version > 0', name='ck_iqb_version'),)
+    content_code: Mapped[str | None] = mapped_column(String(40))
+    difficulty: Mapped[str | None] = mapped_column(String(16))
+    sort_order: Mapped[int | None] = mapped_column(Integer)
+    review_status: Mapped[str | None] = mapped_column(String(16))
+    review_material: Mapped[dict | None] = mapped_column(JSON)
+    reviewed_by: Mapped[str | None] = mapped_column(String(100))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint('version > 0', name='ck_iqb_version'),
+        CheckConstraint("content_code IS NULL OR (difficulty IS NOT NULL AND difficulty IN ('basic','intermediate','challenge') AND sort_order IS NOT NULL AND sort_order >= 0 AND review_status IS NOT NULL AND review_status IN ('draft','approved') AND review_material IS NOT NULL)", name='ck_iqb_review_fields'),
+        CheckConstraint("content_code IS NULL OR NOT active OR (review_status = 'approved' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)", name='ck_iqb_active_approved'),
+        CheckConstraint("content_code IS NULL OR review_status != 'approved' OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)", name='ck_iqb_review_audit'),
+        UniqueConstraint('preset_id', 'content_code', 'version', name='uq_iqb_content_version'),
+        Index('uq_iqb_active_content', 'preset_id', 'content_code', unique=True, postgresql_where=text('active AND content_code IS NOT NULL'), sqlite_where=text('active AND content_code IS NOT NULL')),
+    )
 
 
 class Interview(Base):

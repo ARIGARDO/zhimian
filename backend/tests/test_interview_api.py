@@ -7,6 +7,8 @@ from app.db.session import get_db
 from app.main import app
 from app.models.interview import Interview, InterviewPreset, InterviewQuestionBank
 
+TEST_MATERIAL = {'objectives':'测试目标', 'key_points':['测试要点'], 'anchors':{'complete':'完整','adequate':'基本','partial':'部分','insufficient':'不足'}, 'alternatives':['替代'], 'misconceptions':['误区']}
+
 
 @pytest.mark.asyncio
 async def test_api_flow_scope_idempotency_and_visibility(tmp_path):
@@ -17,7 +19,7 @@ async def test_api_flow_scope_idempotency_and_visibility(tmp_path):
         db.add(InterviewPreset(id='test-only', kind='bank', name='测试专用', version=1, active=True, config={}))
         await db.flush()
         for n in range(3):
-            db.add(InterviewQuestionBank(id=f'test-q{n}', preset_id='test-only', content=f'测试题{n}', topic='test', version=1, active=True))
+            db.add(InterviewQuestionBank(id=f'test-q{n}', preset_id='test-only', content=f'测试题{n}', topic='test', version=1, active=True, content_code=f'T{n}', difficulty='basic', sort_order=n, review_status='approved', reviewed_by='test', reviewed_at=datetime.now(timezone.utc), review_material=TEST_MATERIAL))
         await db.commit()
     async def override():
         async with factory() as db: yield db
@@ -26,7 +28,8 @@ async def test_api_flow_scope_idempotency_and_visibility(tmp_path):
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test/api/v1') as c:
             assert len((await c.get('/interview-presets')).json()) == 1
-            assert 'content' not in (await c.get('/interview-presets/test-only/questions')).json()[0]
+            question_list = (await c.get('/interview-presets/test-only/questions')).json()
+            assert 'content' not in question_list[0] and '测试要点' not in str(question_list)
             body={'preset_id':'test-only','mode':'practice','limit_type':'count','main_limit':3}
             assert (await c.post('/interviews',json=body)).status_code == 422
             assert (await c.post('/interviews',json={**body,'main_limit':2},headers=h('bad'))).status_code == 422
@@ -62,7 +65,7 @@ async def test_api_flow_scope_idempotency_and_visibility(tmp_path):
             fq=(await c.post(f'/interviews/{formal}/questions/next',headers=h('fq'))).json()
             assert (await c.post(f'/interviews/{formal}/answers',json={'question_id':fq['id'],'skip':True},headers=h('fskip'))).status_code==409
             detail=(await c.get(f'/interviews/{formal}')).json()
-            assert 'score' not in str(detail) and 'review' not in str(detail) and 'question_plan' not in str(detail)
+            assert 'score' not in str(detail) and 'review' not in str(detail) and 'question_plan' not in str(detail) and '测试要点' not in str(detail)
             async with factory() as db:
                 async with db.begin():
                     item=await db.get(Interview,formal)

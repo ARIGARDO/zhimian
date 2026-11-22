@@ -12,6 +12,8 @@ import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from app.models.interview import Interview, InterviewPreset, InterviewQuestionBank, InterviewOperation
+
+TEST_MATERIAL = {'objectives':'测试目标', 'key_points':['测试要点'], 'anchors':{'complete':'完整','adequate':'基本','partial':'部分','insufficient':'不足'}, 'alternatives':['替代'], 'misconceptions':['误区']}
 from sqlalchemy import select
 from datetime import datetime, timedelta, timezone
 
@@ -25,7 +27,7 @@ async def setup():
     async with factory() as db:
         db.add(InterviewPreset(id='test-only',kind='bank',name='测试题库',version=1,active=True,config={}))
         await db.flush()
-        for i in range(3): db.add(InterviewQuestionBank(id=f'test-{i}',preset_id='test-only',content=f'隔离测试题{i}',topic='test',version=1,active=True))
+        for i in range(3): db.add(InterviewQuestionBank(id=f'test-{i}',preset_id='test-only',content=f'隔离测试题{i}',topic='test',version=1,active=True,content_code=f'T{i}',difficulty='basic',sort_order=i,review_status='approved',reviewed_by='test',reviewed_at=datetime.now(timezone.utc),review_material=TEST_MATERIAL))
         await db.commit()
 asyncio.run(setup())
 

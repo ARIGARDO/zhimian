@@ -147,3 +147,13 @@ async def test_model_unsupported_token_parameter_is_visible(monkeypatch):
     monkeypatch.setattr('app.llm.client.httpx.AsyncClient',lambda **kwargs: original(transport=httpx.MockTransport(handler)))
     with pytest.raises(ModelError,match='不兼容'):
         _=[part async for part in stream_chat(Settings(model_name='test',model_api_key='test-key'),[],max_tokens=100)]
+
+@pytest.mark.asyncio
+async def test_output_token_limit_is_reported(monkeypatch):
+    import httpx
+    original = httpx.AsyncClient
+    def handler(request):
+        return httpx.Response(200, text='data: {"choices":[{"delta":{"content":"部分"},"finish_reason":null}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n')
+    monkeypatch.setattr('app.llm.client.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(handler)))
+    with pytest.raises(ModelError, match='输出超出预算'):
+        _ = [part async for part in stream_chat(Settings(model_name='test', model_api_key='test-key'), [], max_tokens=10)]
