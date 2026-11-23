@@ -59,3 +59,12 @@ Python 1 报告对 P01 的正确作答及追问作答予以肯定；对 P05 的�
 - 测试使用 `env -i PATH=/usr/bin:/bin LANG=en_US.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/zhimian-leakfix-5ucQkW:/Users/arigardo/Desktop/zhimian/backend DATABASE_URL=sqlite+aiosqlite:////tmp/zhimian-leakfix-5ucQkW/default.sqlite MODEL_API_KEY='' MODEL_NAME='' MODEL_BASE_URL=http://127.0.0.1:9/v1 /tmp/zhimian-m306-py313/bin/pytest -q -p no:cacheprovider --basetemp=/tmp/zhimian-leakfix-5ucQkW/pytest-final3`；临时目录中的 `sitecustomize.py` 禁止 socket 连接。
 - 原始证据已复制至 Git 仓库外 `~/Library/Application Support/ZhiMian/acceptance/m306b-3b-evidence`，目录权限 `0700`、文件权限 `0600`，14 个文件逐一 SHA-256 与原目录一致，目录内保留 `SHA256SUMS`。原始账本与副本摘要一致，仍为 4/8；隔离 PostgreSQL 容器已停止，数据卷保留。
 - 本轮未发送任何新增真实请求。虽然本地修复和模拟测试通过，仍需独立评审、确认历史结果处理和测试账户及共享账本安全，且取得新的真实调用授权后才能复测；不能声称模型质量或语义安全已验收。
+
+## 泄漏修复后的定向复测准备（尚未调用模型）
+
+- 使用包含 `fac6d89` 修复的代码、原隔离 PostgreSQL 数据卷和原账本。启动前核对隔离库名、角色、标记和 `0008_reviewed_question_versions` 迁移；原账本与持久副本摘要一致，均为 4/8。
+- 使用仅允许本机连接的单进程临时后端进行准备；该后端采用占位密钥，且显式禁用所有模型操作。旧场次的反馈操作读取与完整报告读取均返回 HTTP 409 的通用内容检查错误，没有返回模型正文。前后核对旧场次、问题、回答、操作、结果和报告的数据摘要一致，历史结果未改变。
+- 新建 Python 练习场次，按 P01、P05、P06 顺序提交与原场次相同的三条主问题合成回答；三道题的冻结版本及内容摘要均与清单一致。该新场次不包含原场次的追问回答，已按题数规则完成，完整报告尚未请求。
+- 本准备阶段真实模型调用 0 次，原账本仍为 4/8 且摘要未变。新场次 ID、三个回答 ID、题目摘要和账本摘要保存在 Git 仓库外的受限目录 `~/Library/Application Support/ZhiMian/acceptance/m306b-3b-retest-prep`，已核对文件 SHA-256；原始证据副本未修改。
+- 准备完成后临时后端和隔离数据库容器均已停止，独立数据卷保留。临时后端为防止误调用主动禁用了模型操作，因此不能用于真实复测；获得单次真实调用授权后须重新核验代码、专用测试密钥、原账本和数据库隔离，再启动允许模型操作的独立后端。
+- 实际模型输出、Token 用量、泄漏拦截及人工评价尚未复测，不得标记通过。后续最多一次真实请求仍须负责人单独授权，不能自动执行 Python 2、AI 1 或 AI 2。
