@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.db.base import Base
 from app.llm.client import ModelError
-from app.models.interview import Interview, InterviewAIArtifact, InterviewOperation, InterviewQuestion
+from app.models.interview import Interview, InterviewAIArtifact, InterviewOperation, InterviewQuestion, InterviewReport
 from app.services.interview import InterviewConflict, InterviewService, recommended_rules
 from app.services.interview_ai import InterviewAIService, parse_result
 
@@ -34,6 +34,98 @@ def model_result(data):
     async def model(settings,messages,*,max_tokens=None):
         yield json.dumps(data,ensure_ascii=False)
     return model
+
+
+@pytest.mark.parametrize('text', [
+    '相比参考材料中的要求，该回答仍有遗漏。',
+    '回答仅达到“部分”水平。',
+    '该回答被判定为“不足”。',
+    '这个方案符合“完整”或“充分”标准。',
+    '整体符合完整标准。',
+    '内部评分锚点规定了四个档次。',
+])
+def test_reject_internal_review_metadata(text):
+    with pytest.raises(ModelError):
+        parse_result('feedback', json.dumps({'feedback': text}, ensure_ascii=False), {'a'})
+    with pytest.raises(ModelError):
+        parse_result('full', json.dumps({'summary': text, 'overall_score': 65,
+                     'items': [{'answer_id': 'a', 'review': '说明已提交的内容'}]}, ensure_ascii=False), {'a'})
+
+
+@pytest.mark.parametrize('text', [
+    '回答完整且正确，异常处理仍有不足。',
+    '事务提交后仍需释放连接；HTTP 404 表示资源不存在。',
+    '建议参考材料来了解 Python 3.12 的事务处理。',
+    '回答部分正确，但未解释回滚。',
+    '异步驱动和受控线程池都是可行方案。',
+    '检索系统的评估标准应包括召回率。',
+])
+def test_allow_normal_review_language(text):
+    assert parse_result('feedback', json.dumps({'feedback': text}, ensure_ascii=False), {'a'})['feedback'] == text
+    result = parse_result('full', json.dumps({'summary': text, 'overall_score': 65,
+                          'items': [{'answer_id': 'a', 'review': text}]}, ensure_ascii=False), {'a'})
+    assert result['overall_score'] == 65
+
+
+@pytest.mark.asyncio
+async def test_leaking_report_is_not_saved_or_returned(env):
+    factory,call,make=env; cid,q,a=await make(); ids=[a['id']]
+    await call('close_main',cid,'c1')
+    for n in (2,3):
+        q=await call('add_question',cid,f'q{n}','问题')
+        a=await call('answer',cid,f'a{n}',q['id'],'有效回答')
+        ids.append(a['id']); await call('close_main',cid,f'c{n}')
+    payload={'summary':'回答符合“完整”标准', 'overall_score':65,
+             'items':[{'answer_id':value,'review':'说明实际回答'} for value in ids]}
+    calls=[]
+    async def model(settings,messages,*,max_tokens=None):
+        calls.append(1); yield json.dumps(payload,ensure_ascii=False)
+    ai=InterviewAIService(factory,model)
+    result=await ai.run(cid,'leak','report','full')
+    assert result['status']=='failed' and len(calls)==1 and '完整' not in str(result)
+    async with factory() as db:
+        assert not (await db.scalars(select(InterviewAIArtifact).where(InterviewAIArtifact.interview_id==cid))).all()
+        assert not (await db.scalars(select(InterviewReport).where(InterviewReport.interview_id==cid))).all()
+    assert (await ai.get_report(cid))['status']=='not_requested'
+
+
+@pytest.mark.asyncio
+async def test_existing_leaking_artifact_not_returned(env):
+    factory,call,make=env; cid,q,a=await make()
+    ai=InterviewAIService(factory,model_result({'feedback':'请解释技术原因'}))
+    result=await ai.run(cid,'feedback','feedback',a['id'])
+    async with factory() as db:
+        async with db.begin():
+            artifact=await db.scalar(select(InterviewAIArtifact).where(InterviewAIArtifact.operation_id==result['id']))
+            artifact.payload={'feedback':'参考材料中的要求是内部信息'}
+    with pytest.raises(InterviewConflict,match='内容检查'):
+        await ai.get(cid,result['id'])
+    with pytest.raises(InterviewConflict,match='内容检查'):
+        await ai.run(cid,'feedback','feedback',a['id'])
+
+
+@pytest.mark.asyncio
+async def test_existing_leaking_report_blocked_on_both_read_paths(env):
+    factory,call,make=env; cid,q,a=await make(); ids=[a['id']]
+    await call('close_main',cid,'c1')
+    for n in (2,3):
+        q=await call('add_question',cid,f'q{n}','问题')
+        a=await call('answer',cid,f'a{n}',q['id'],'有效回答')
+        ids.append(a['id']); await call('close_main',cid,f'c{n}')
+    payload={'summary':'内容基本正确', 'overall_score':65,
+             'items':[{'answer_id':value,'review':'说明实际回答'} for value in ids]}
+    ai=InterviewAIService(factory,model_result(payload))
+    result=await ai.run(cid,'report','report','full')
+    async with factory() as db:
+        async with db.begin():
+            artifact=await db.scalar(select(InterviewAIArtifact).where(InterviewAIArtifact.operation_id==result['id']))
+            artifact.payload={**payload,'summary':'回答仅达到“部分”水平'}
+    with pytest.raises(InterviewConflict,match='内容检查'):
+        await ai.get_report(cid)
+    with pytest.raises(InterviewConflict,match='内容检查'):
+        await ai.get(cid,result['id'])
+    with pytest.raises(InterviewConflict,match='内容检查'):
+        await ai.run(cid,'report','report','full')
 
 
 @pytest.mark.asyncio
