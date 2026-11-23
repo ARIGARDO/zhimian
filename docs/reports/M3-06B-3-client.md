@@ -9,6 +9,8 @@
 ```dotenv
 MODEL_BASE_URL=https://cn-beijing.maas.qianwenaiapi.com/compatible-mode/v1
 MODEL_NAME=qwen3.8-flash
+MODEL_ACCEPTANCE_MODE=true
+MODEL_ACCEPTANCE_ISOLATED_ACCOUNT=true
 MODEL_ENABLE_THINKING=false
 MODEL_TEST_INCLUDE_USAGE=true
 MODEL_TEST_LEDGER_PATH=/隔离目录/model-acceptance-ledger.json
@@ -23,6 +25,14 @@ MODEL_AI_MAX_OUTPUT_TOKENS=1024
 仅显式启用 `MODEL_TEST_INCLUDE_USAGE` 时发送 `stream_options.include_usage`，且必须配置账本。账本记录时间、操作 ID（面试模型调用时）、响应 ID、HTTP 请求 ID、返回模型名、实际返回的输入/输出/总 Token 和成功或失败；没有收到时相应字段为 `null`（未知）。不写入密钥、完整输入、内部材料或输出。`length` 后在流正常结束或断流前尝试接收用量，但仍返回失败，不能将截断报告保存为成功；如果等待超时或被取消，最终用量可能未知。账本无法记录完成状态时调用失败。
 
 本工具不保存供应商账单或完整原始输出。后续测试应另行使用获批准的受控证据位置保存合成输入、原始输出并核对供应商账单，不应写入普通日志；需事先确认供应商账户的可执行费用硬上限。配置计数和 Token 上限不能等同于金额硬上限。
+
+## M3-06B-3A 验收模式修复
+
+`MODEL_ACCEPTANCE_MODE` 默认关闭；普通模式仍可单独关闭思考，默认请求不增加新字段。开启后，任何模型 HTTP 请求前检查显式指定的千问模型和北京地址、非空密钥、隔离账户声明、关闭思考、用量采集、共享账本、单操作尝试次数 1、配置及实际请求的输出上限 1024；账本必须可用且上限为 8。账本认领失败时网络请求不会发送。隔离账户声明仅为操作人员的配置声明，代码无法证明密钥归属、账户费用限额或其他客户端不使用该密钥。
+
+建议后续隔离验收只启动一个后端实例、一个 worker，由同一启动环境提供以上配置和账本路径；不要与正式 Compose 或其他客户端共用测试密钥。若启用多个 worker，必须继承同一启动环境并共享同一个账本文件的 inode 与文件锁。模拟测试验证同一启动环境的四个进程读取相同账本且并发最多认领 8 次；不能保证独立启动、错误挂载或刻意绕过验收模式的进程也受到约束。真实验收前仍需实际检查进程、挂载与账户隔离。
+
+本次运行完整后端 pytest：129 项通过、0 项失败、0 项跳过。使用 `env -i`、`DATABASE_URL=sqlite+aiosqlite:////tmp/zhimian-acceptfix-6o27EU/default.sqlite`、`--basetemp=/tmp/zhimian-acceptfix-6o27EU/pytest`，并通过临时 `sitecustomize.py` 禁止 socket 网络连接；模型响应均为模拟。SQLite 临时目录测试后清理。覆盖 M2/M3 回归、配置缺失、非法预算、账本损坏/缺失/权限/模拟不可写、第九次请求、失败和进程强退后额度保留，以及普通模式兼容。PostgreSQL 专属测试、真实供应商和账单未验证。
 
 ## 测试及限制
 

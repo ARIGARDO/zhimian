@@ -17,6 +17,20 @@ async def stream_chat(settings: Settings, messages: list[dict[str, str]], *, max
     key = settings.model_api_key.get_secret_value()
     if not key or not settings.model_name:
         raise ModelError("请先在服务端配置模型名称和 API Key")
+    if settings.model_acceptance_mode:
+        # 仅限制验收模式；普通模型调用保持原来的参数契约。
+        required = {'model_name', 'model_base_url', 'model_api_key'}
+        if (not required.issubset(settings.model_fields_set)
+                or settings.model_name != 'qwen3.8-flash'
+                or settings.model_base_url.rstrip('/') != 'https://cn-beijing.maas.qianwenaiapi.com/compatible-mode/v1'
+                or not settings.model_acceptance_isolated_account
+                or settings.model_enable_thinking is not False
+                or not settings.model_test_include_usage
+                or not settings.model_test_ledger_path
+                or settings.model_ai_max_attempts != 1
+                or settings.model_ai_max_output_tokens != 1024
+                or max_tokens != 1024):
+            raise ModelError("隔离验收配置不完整或不符合预算要求")
     url = settings.model_base_url.rstrip("/") + "/chat/completions"
     payload = {"model": settings.model_name, "messages": messages, "stream": True}
     if settings.model_enable_thinking is not None:

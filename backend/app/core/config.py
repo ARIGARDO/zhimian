@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     model_api_key: SecretStr = SecretStr("")
     model_timeout: float = 60.0
     # 仅隔离验收显式启用；默认不改变供应商请求。
+    model_acceptance_mode: bool = False
+    model_acceptance_isolated_account: bool = False
     model_enable_thinking: bool | None = None
     model_test_include_usage: bool = False
     model_test_ledger_path: str | None = None
