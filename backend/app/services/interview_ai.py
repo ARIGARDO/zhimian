@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from app.core.config import get_settings
 from app.db import session as db_session
 from app.llm.client import ModelError, stream_chat
+from app.llm.test_ledger import operation_id as test_operation_id
 from app.models.interview import InterviewAIArtifact, InterviewAnswer, InterviewOperation, InterviewQuestion, InterviewQuestionBank, InterviewReport
 from app.services.interview import InterviewConflict, InterviewNotFound, InterviewService, MAX_FOLLOWUPS, database_now, recommended_rules, utc
 
@@ -278,6 +279,7 @@ class InterviewAIService:
             system += '候选评分参考技术正确性、分析深度、表达逻辑，不设默认权重；仅根据提供的回答评价。'
         messages = [{'role':'system','content':system}, {'role':'user','content':json.dumps(records, ensure_ascii=False, separators=(',', ':'))}]
         heartbeat = asyncio.create_task(self._heartbeat(interview_id, operation_id, owner))
+        operation_token = test_operation_id.set(operation_id)
         try:
             parts=[]; length=0
             settings = get_settings()
@@ -301,6 +303,7 @@ class InterviewAIService:
             await self.fail(interview_id, operation_id, owner, 'processing_error')
             return {'id':operation_id,'status':'failed','error':'模型操作失败，请重试'}
         finally:
+            test_operation_id.reset(operation_token)
             heartbeat.cancel()
             try: await heartbeat
             except (asyncio.CancelledError, Exception): pass

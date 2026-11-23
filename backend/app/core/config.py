@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     model_name: str = ""
     model_api_key: SecretStr = SecretStr("")
     model_timeout: float = 60.0
+    # 仅隔离验收显式启用；默认不改变供应商请求。
+    model_enable_thinking: bool | None = None
+    model_test_include_usage: bool = False
+    model_test_ledger_path: str | None = None
     # M3 单操作总尝试次数（含首次）、输出 token 与单次最长执行时间。
     model_ai_max_attempts: int = Field(default=3, ge=1, le=10)
     model_ai_max_output_tokens: int = Field(default=1024, ge=1, le=8192)
