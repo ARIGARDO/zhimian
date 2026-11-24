@@ -17,6 +17,8 @@ async def stream_chat(settings: Settings, messages: list[dict[str, str]], *, max
     key = settings.model_api_key.get_secret_value()
     if not key or not settings.model_name:
         raise ModelError("请先在服务端配置模型名称和 API Key")
+    if (settings.model_acceptance_batch_id is not None or settings.model_acceptance_request_limit != 8) and not settings.model_acceptance_mode:
+        raise ModelError("验收批次配置必须启用验收模式")
     if settings.model_acceptance_mode:
         # 仅限制验收模式；普通模型调用保持原来的参数契约。
         required = {'model_name', 'model_base_url', 'model_api_key'}
@@ -47,7 +49,8 @@ async def stream_chat(settings: Settings, messages: list[dict[str, str]], *, max
                'prompt_tokens': None, 'completion_tokens': None, 'total_tokens': None}
     if settings.model_test_ledger_path:
         try:
-            ticket = update_ledger(settings.model_test_ledger_path)
+            ticket = update_ledger(settings.model_test_ledger_path, expected_limit=settings.model_acceptance_request_limit,
+                                   expected_batch=settings.model_acceptance_batch_id)
         except (OSError, ValueError, TypeError) as exc:
             raise ModelError("验收账本不可用或请求已达上限") from exc
     def identifier(value):
@@ -103,6 +106,7 @@ async def stream_chat(settings: Settings, messages: list[dict[str, str]], *, max
     finally:
         if ticket:
             try:
-                update_ledger(settings.model_test_ledger_path, ticket, details)
+                update_ledger(settings.model_test_ledger_path, ticket, details, expected_limit=settings.model_acceptance_request_limit,
+                              expected_batch=settings.model_acceptance_batch_id)
             except (OSError, ValueError, TypeError) as exc:
                 raise ModelError("验收账本记录失败") from exc

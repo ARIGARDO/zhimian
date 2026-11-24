@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.db import session as db_session
 from app.llm.client import ModelError, stream_chat
 from app.llm.test_ledger import operation_id as test_operation_id
+from app.llm.test_ledger import operation_scope as test_operation_scope
 from app.models.interview import InterviewAIArtifact, InterviewAnswer, InterviewOperation, InterviewQuestion, InterviewQuestionBank, InterviewReport
 from app.services.interview import InterviewConflict, InterviewNotFound, InterviewService, MAX_FOLLOWUPS, database_now, recommended_rules, utc
 
@@ -148,6 +149,11 @@ class InterviewAIService:
             if not answer: raise InterviewNotFound('有效回答不存在')
             question = by_id.get(answer.question_id)
             if kind == 'followup':
+                settings = get_settings()
+                if (getattr(settings, 'model_acceptance_mode', False)
+                        and getattr(settings, 'model_acceptance_batch_id', None) == 'm306b-3c'
+                        and item.mode != 'formal'):
+                    raise InterviewConflict('本批验收追问仅允许正式面试')
                 if not question or question.main_number != item.main_count: raise InterviewConflict('回答不属于当前主问题')
                 related = [q for q in questions if q.main_number == question.main_number]
                 main = next((q for q in related if q.depth == 0), None)
@@ -329,6 +335,7 @@ class InterviewAIService:
         messages = [{'role':'system','content':system}, {'role':'user','content':json.dumps(records, ensure_ascii=False, separators=(',', ':'))}]
         heartbeat = asyncio.create_task(self._heartbeat(interview_id, operation_id, owner))
         operation_token = test_operation_id.set(operation_id)
+        scope_token = test_operation_scope.set((interview_id, kind, target_id))
         try:
             parts=[]; length=0
             settings = get_settings()
@@ -349,6 +356,7 @@ class InterviewAIService:
         except Exception:
             return await self.failure_result(interview_id, operation_id, owner, 'processing_error', '模型操作失败')
         finally:
+            test_operation_scope.reset(scope_token)
             test_operation_id.reset(operation_token)
             heartbeat.cancel()
             try: await heartbeat

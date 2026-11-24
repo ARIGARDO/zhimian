@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # 仅隔离验收显式启用；默认不改变供应商请求。
     model_acceptance_mode: bool = False
     model_acceptance_isolated_account: bool = False
+    model_acceptance_request_limit: int = Field(default=8, ge=1, le=8)
+    model_acceptance_batch_id: str | None = None
     model_enable_thinking: bool | None = None
     model_test_include_usage: bool = False
     model_test_ledger_path: str | None = None
