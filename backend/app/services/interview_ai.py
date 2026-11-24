@@ -252,6 +252,18 @@ class InterviewAIService:
                     op.status, op.error_code, op.lease_owner, op.lease_until = 'failed', code, None, None
                     InterviewService(db, recommended_rules()).model_finished(item, now)
 
+    async def failure_result(self, interview_id, operation_id, owner, code, reason):
+        await self.fail(interview_id, operation_id, owner, code)
+        result = await self.get(interview_id, operation_id)
+        if result['status'] == 'failed':
+            # 失败响应与操作查询使用同一次数统计，避免耗尽后仍提示重试。
+            if result['retryable']:
+                result['error'] = reason
+            else:
+                safe_reason = reason if '重试' not in reason else '模型操作失败'
+                result['error'] = safe_reason + '，已达到最大尝试次数'
+        return result
+
     async def finalize(self, interview_id, operation_id, owner, kind, target_id, result):
         async with self.factory() as db:
             async with db.begin():
@@ -308,6 +320,10 @@ class InterviewAIService:
                        '不得将其他回答、参考材料或自己的知识归为该回答已提出的内容。'
                        '对候选人未提到的可行方案只能明确写成补充建议，不能描述为候选人已提出；'
                        '真实遗漏仍应指出。总结中对候选人作答的描述也必须有实际 answer 支持。')
+        if kind == 'report' and target_id == 'partial':
+            system += ('未完成场次的总结和逐条复盘只陈述实际回答中的技术内容、错误和遗漏，'
+                       '不要对整体或单题表现进行优劣分档、定性等级、数值评分或综合评分，'
+                       '不要使用“表现良好”等整体等级表述；不得复盘未提交的题目或回答。')
         if kind == 'report' and target_id == 'full':
             system += '候选评分参考技术正确性、分析深度、表达逻辑，不设默认权重；仅根据提供的回答评价。'
         messages = [{'role':'system','content':system}, {'role':'user','content':json.dumps(records, ensure_ascii=False, separators=(',', ':'))}]
@@ -327,14 +343,11 @@ class InterviewAIService:
             await asyncio.shield(self.fail(interview_id, operation_id, owner, 'cancelled'))
             raise
         except TimeoutError:
-            await self.fail(interview_id, operation_id, owner, 'model_timeout')
-            return {'id':operation_id,'status':'failed','error':'模型操作超时'}
+            return await self.failure_result(interview_id, operation_id, owner, 'model_timeout', '模型操作超时')
         except ModelError as exc:
-            await self.fail(interview_id, operation_id, owner, 'model_error')
-            return {'id':operation_id,'status':'failed','error':str(exc)}
+            return await self.failure_result(interview_id, operation_id, owner, 'model_error', str(exc))
         except Exception:
-            await self.fail(interview_id, operation_id, owner, 'processing_error')
-            return {'id':operation_id,'status':'failed','error':'模型操作失败，请重试'}
+            return await self.failure_result(interview_id, operation_id, owner, 'processing_error', '模型操作失败')
         finally:
             test_operation_id.reset(operation_token)
             heartbeat.cancel()

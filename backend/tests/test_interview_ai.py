@@ -203,6 +203,50 @@ async def test_formal_feedback_and_partial_report(env):
 
 
 @pytest.mark.asyncio
+async def test_partial_factual_prompt_and_exhausted_failure(env, monkeypatch):
+    from app.core.config import Settings
+    factory,call,make=env
+    settings = Settings(_env_file=None, model_ai_max_attempts=1)
+    monkeypatch.setattr('app.services.interview_ai.get_settings', lambda: settings)
+    cid,q,a=await make('formal'); ids=[a['id']]
+    await call('close_main',cid,'close1',question_id=q['id'])
+    q=await call('add_question',cid,'q2','第二个问题')
+    a=await call('answer',cid,'a2',q['id'],'向量相似不代表事实正确')
+    ids.append(a['id']); await call('end',cid,'end','terminated','提前结束')
+    calls=[]
+    async def model(settings,messages,*,max_tokens=None):
+        calls.append(1)
+        assert '不要对整体或单题表现进行优劣分档' in messages[0]['content']
+        assert '不得复盘未提交的题目或回答' in messages[0]['content']
+        records=json.loads(messages[1]['content'])
+        assert {item['answer_id'] for item in records}==set(ids)
+        yield json.dumps({'summary':'候选人表现良好', 'items':[
+            {'answer_id':value,'review':'可进一步说明技术依据'} for value in ids]},ensure_ascii=False)
+    ai=InterviewAIService(factory,model)
+    failed=await ai.run(cid,'partial-report','report','partial')
+    assert failed['status']=='failed' and failed['retryable'] is False and '重试' not in failed['error']
+    assert (await ai.get(cid,failed['id']))['retryable'] is False
+    assert '重试' not in (await ai.get(cid,failed['id']))['error']
+    assert (await ai.get_report(cid))['status']=='not_requested'
+    async with factory() as db:
+        assert not (await db.scalars(select(InterviewAIArtifact).where(InterviewAIArtifact.interview_id==cid))).all()
+        assert not (await db.scalars(select(InterviewReport).where(InterviewReport.interview_id==cid))).all()
+    with pytest.raises(InterviewConflict,match='最大尝试次数'):
+        await ai.run(cid,'partial-report','report','partial')
+    assert calls==[1]
+
+
+def test_factual_partial_keeps_two_answers_without_scores():
+    payload={'summary':'回答讨论了检索定位和向量相似度的局限。','items':[
+        {'answer_id':'a01','review':'回答提出固定检索结果并核对来源；可补充检查切分。'},
+        {'answer_id':'a05','review':'回答指出相似度不能保证事实正确；可补充阈值的选择。'}]}
+    result=parse_result('partial',json.dumps(payload,ensure_ascii=False),{'a01','a05'})
+    assert result==payload and 'overall_score' not in result
+    with pytest.raises(ModelError):
+        parse_result('partial',json.dumps(payload,ensure_ascii=False),{'a01','a05','a06'})
+
+
+@pytest.mark.asyncio
 async def test_empty_and_full_report_reference_validation(env):
     factory,call,make=env
     async with factory() as db:
