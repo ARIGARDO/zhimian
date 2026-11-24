@@ -115,3 +115,14 @@ Python 2 的报告恰好引用三个有效回答 ID，未发现内部参考材�
 Python 2 模型操作 ID 为 `3a4dcabc-8936-4c83-8368-a5621362b490`，供应商模型标识 `qwen3.8-flash`；实际用量输入 **944 Token**、输出 **532 Token**、合计 **1476 Token**。原账本现为 **6/8**，前五条与 5/8 保全副本一致；未重置或重试。实际费用尚未从供应商账单核验。隔离后端和数据库容器已停止，数据卷和未执行场次保留。
 
 Python 2 原始输出、服务端响应、核对记录及 6/8 账本快照保存在既有受限证据目录的 `remaining-python2-20261124` 子目录，六项文件 SHA-256 已核对；原始输出未提交 Git。正式模式真实追问仍未执行，属于未覆盖项。模型输出存在错误归因，M3-06B 整体质量验收尚未通过；后续 AI 1、AI 2 的执行、问题处理和最终人工签核均须等待负责人决定。单场结果不能证明模型一致性或普遍公平性。
+
+## Python 2 错误归因：证据复核与提示词修复
+
+- 对照仓库外受限证据：P01 候选人提出独立工作进程、队列或 RPC、排队限制和超时；报告的一句评价将未提出的线程池与工作进程一起描述为候选人提出的方案，这是确定的 P1 错误归因。同一条评价对候选人未解释事件循环阻塞原因的指出有实际依据；其他技术方案作为建议出现本身并非问题。
+- P05 逐项归纳与回答基本对应，报告指出未明确响应序列化；P06 的评价将回答概括为区分各类状态码的基本语义，而其对 422 只提及按契约处理，报告总结又指出 422 解释模糊。该概括是否过度宽泛需领域人员复核，不能仅凭本轮检查认定为另一处确定的虚构。未发现其他明确将内部材料中的具体方案归作候选人已提出的表述。
+- 实现检查表明输入已按 `question`、`answer` 和 `review_material` 分字段，但原提示词虽然禁止编造，没有明确约束逐题归因只能依据对应 `answer_id` 的 `answer`，也没有要求将未提及的方案明确表述为补充建议。这是可观察的约束缺口；仅凭一次模型输出，不能确定模型内部生成原因，也不能证明提示词缺口是唯一原因。
+- `backend/app/services/interview_ai.py` 仅加强练习反馈、完整报告和部分复盘的提示词：明确回答是候选人说过什么的唯一证据，题目用于理解考查点，内部材料仅用于技术判断和建议；不得将其他题目回答、内部材料或模型补充归为该回答已提出的内容，真实遗漏仍应指出。API、报告结构、候选评分、状态机和追问逻辑未改动。
+- `backend/tests/test_interview_attribution.py` 使用 Python 2 的实际 P01 回答和独立的模拟评价材料，检查三类评价的提示词、按回答 ID 对应的输入、合理替代方案、作为补充建议的线程池以及真实遗漏；保留结构校验不能证明语义归因正确的测试。模拟模型按测试脚本返回结果，**不能证明真实 Qwen 模型会遵循提示词**。没有新增基于技术词的自动归因拦截；原内部材料泄漏保护测试继续通过。
+- 全部后端 pytest：**148 passed、0 failed、0 skipped**。执行命令：`env -i PATH=/usr/bin:/bin LANG=en_US.UTF-8 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/zhimian-attribution-BAWyQ9:/Users/arigardo/Desktop/zhimian/backend DATABASE_URL=sqlite+aiosqlite:////tmp/zhimian-attribution-BAWyQ9/default.sqlite MODEL_API_KEY='' MODEL_NAME='' MODEL_BASE_URL=http://127.0.0.1:9/v1 /tmp/zhimian-m306-py313/bin/pytest -q -p no:cacheprovider --basetemp=/tmp/zhimian-attribution-BAWyQ9/pytest`。仅使用模拟模型和该独立临时目录中的 SQLite；临时 `sitecustomize.py` 禁止 socket 网络连接。存在既有 pytest-asyncio 配置和 Starlette TestClient 弃用提示；PostgreSQL 专属集成测试未执行。
+- 本轮未调用真实模型。原账本仍为 **6/8**，与 6/8 保全快照摘要一致；Python 2 原始证据文件摘要均一致，隔离 PostgreSQL 容器仍停止且原数据卷保留。历史 Python 2 报告和候选分数未修改，仍为 **P1 错误归因、未通过人工质量审核**。
+- 模拟回归通过仅表明代码和提示词按设计组装；真实模型能否准确归因、是否发生新的泄漏，以及本次修复是否有效，均尚未验证。是否使用剩余额度进行真实复测须等待独立评审与另行授权；本轮不新增错误报告失效或重新生成机制，不执行 AI 1、AI 2。
