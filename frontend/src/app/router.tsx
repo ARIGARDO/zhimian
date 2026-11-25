@@ -8,6 +8,7 @@ import { ChatPage } from '../pages/ChatPage'
 import { ComingSoonPage } from '../pages/ComingSoonPage'
 import { TasksPage } from '../pages/TasksPage'
 import { GrowthPage } from '../pages/GrowthPage'
+import { SettingsPage } from '../pages/SettingsPage'
 const InterviewConfigPage = lazy(() => import('../pages/InterviewPage').then(m => ({ default: m.InterviewConfigPage })))
 const InterviewHistoryPage = lazy(() => import('../pages/InterviewPage').then(m => ({ default: m.InterviewHistoryPage })))
 const InterviewSessionPage = lazy(() => import('../pages/InterviewPage').then(m => ({ default: m.InterviewSessionPage })))
@@ -33,7 +34,8 @@ export function AppRouter() {
       <Route path="tasks" element={<TasksPage />} />
       <Route path="knowledge" element={<LearnCatalogPage />} />
       <Route path="growth" element={<GrowthPage />} />
-      {['settings','*'].map(path =>
+      <Route path="settings" element={<SettingsPage />} />
+      {['*'].map(path =>
         <Route key={path} path={path} element={<ComingSoonPage />} />)}
     </Route>
   </Routes></Suspense></BrowserRouter>

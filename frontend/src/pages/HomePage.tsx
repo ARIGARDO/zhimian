@@ -15,7 +15,7 @@ export function HomePage() {
   return <>
     <div className="hero">
       <div><div className="eyebrow hero-eyebrow">YOUR NEXT STEP</div><h1>边学习，边练习，<br/>让每一次面试都有收获。</h1>
-        <p>从结构化知识到真实场景的技术表达，再从复盘回到针对性学习。先把学习基础跑通，逐步接入 AI 能力。</p>
+        <p>从结构化知识到真实场景的技术表达，再从复盘回到针对性学习。从专题学习开始，配置模型后练习问答与面试。</p>
         <div className="hero-actions"><Link className="app-button app-button-secondary" to="/learn"><BookOpen size={16}/>智能学习</Link><Link className="app-button hero-secondary" to="/interviews/new"><Mic size={16}/>模拟面试</Link></div>
       </div><div className="hero-monogram" aria-hidden="true">知</div>
     </div>
@@ -39,7 +39,7 @@ export function HomePage() {
         ['01','学习','浏览结构化专题'],['02','问答','结合知识库理解问题'],['03','模拟面试','真实场景表达与追问'],['04','逐题复盘','找出需要加强的知识'],['05','继续学习','确认任务，回到专题'],
       ].map(([step, title, text]) => <div className="flow-tile" key={step}><b>{step}</b><strong>{title}</strong><span>{text}</span></div>)}</div>
     </section>
-    <div className="alert info"><Database size={17}/><span><strong>真实 M1 工程：</strong>课程、文章和阅读进度来自 FastAPI + PostgreSQL。AI 问答和模拟面试已接入服务端；面试题库需先完成内容审核。</span><Clock size={16}/></div>
+    <div className="alert info"><Database size={17}/><span><strong>开始使用：</strong><Link className="minor-link" to="/settings">查看模型配置</Link>；正式面试题库需先完成人工审核。</span><Clock size={16}/></div>
   </>
 }
 function Metric({ icon, label, value, note }: { icon: ReactNode; label: string; value: string; note: string }) {

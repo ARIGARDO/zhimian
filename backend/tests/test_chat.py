@@ -65,6 +65,12 @@ async def test_model_configuration_error():
 
 
 @pytest.mark.asyncio
+async def test_invalid_model_url_is_rejected_before_network():
+    with pytest.raises(ModelError, match='地址无效'):
+        _ = [part async for part in stream_chat(Settings(_env_file=None, model_name='test', model_api_key='fake', model_base_url='not-a-url'), [])]
+
+
+@pytest.mark.asyncio
 async def test_adapter_reads_openai_events(monkeypatch):
     async def handler(request):
         assert request.headers['authorization'] == 'Bearer test-key'

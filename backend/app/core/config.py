@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,3 +44,17 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def model_configuration_status(url: str, name: str, key: SecretStr) -> str:
+    """只检查配置格式，不访问供应商或返回密钥。"""
+    if not url or not name.strip() or not key.get_secret_value().strip():
+        return 'missing'
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            return 'invalid_url'
+        _ = parsed.port
+    except ValueError:
+        return 'invalid_url'
+    return 'configured'

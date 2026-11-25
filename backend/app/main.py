@@ -10,7 +10,7 @@ from app.services.interview import InterviewConflict, InterviewNotFound, Intervi
 from app.api.v1.chat import router as chat_router
 from app.api.v1.learning import router as learning_router
 from app.api.v1.tasks import router as tasks_router
-from app.core.config import get_settings
+from app.core.config import get_settings, model_configuration_status
 from app.db.session import get_engine
 
 
@@ -36,6 +36,16 @@ app.add_middleware(
 @app.get("/api/v1/health", tags=["health"])
 async def health():
     return {"status": "ok", "milestone": "M2"}
+
+
+@app.get('/api/v1/model/configuration', tags=['configuration'])
+async def model_configuration():
+    settings = get_settings()
+    return {
+        'chat': model_configuration_status(settings.model_base_url, settings.model_name, settings.model_api_key),
+        'embedding': model_configuration_status(settings.embedding_base_url, settings.embedding_model, settings.embedding_api_key),
+        'embedding_dimensions': 384,
+    }
 
 
 @app.get("/api/v1/health/ready", tags=["health"])

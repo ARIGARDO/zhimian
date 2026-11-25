@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from app.content.seed_topics import TOPICS
 from app.main import app
 from app.schemas.learning import ProgressUpdate
+from app.core.config import Settings, model_configuration_status
 
 
 def test_health_without_database() -> None:
@@ -12,6 +13,17 @@ def test_health_without_database() -> None:
         response = client.get("/api/v1/health")
         assert response.status_code == 200
         assert response.json() == {"status": "ok", "milestone": "M2"}
+
+
+def test_configuration_status_never_exposes_credentials(monkeypatch):
+    settings = Settings(_env_file=None, model_base_url='https://example.com/v1', model_name='demo', model_api_key='private-test-key', embedding_base_url='invalid://bad', embedding_model='embedding', embedding_api_key='secret-test-key')
+    monkeypatch.setattr('app.main.get_settings', lambda: settings)
+    with TestClient(app) as client:
+        result = client.get('/api/v1/model/configuration')
+    assert result.status_code == 200
+    assert result.json() == {'chat': 'configured', 'embedding': 'invalid_url', 'embedding_dimensions': 384}
+    assert 'private-test-key' not in result.text and 'secret-test-key' not in result.text
+    assert model_configuration_status('', '', settings.model_api_key) == 'missing'
 
 
 def test_docs_and_openapi_available() -> None:

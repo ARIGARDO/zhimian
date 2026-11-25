@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from app.core.config import Settings
+from app.core.config import Settings, model_configuration_status
 from app.llm.test_ledger import update_ledger
 
 
@@ -17,6 +17,8 @@ async def stream_chat(settings: Settings, messages: list[dict[str, str]], *, max
     key = settings.model_api_key.get_secret_value()
     if not key or not settings.model_name:
         raise ModelError("请先在服务端配置模型名称和 API Key")
+    if model_configuration_status(settings.model_base_url, settings.model_name, settings.model_api_key) != 'configured':
+        raise ModelError('模型服务地址无效，请检查服务端配置')
     if (settings.model_acceptance_batch_id is not None or settings.model_acceptance_request_limit != 8) and not settings.model_acceptance_mode:
         raise ModelError("验收批次配置必须启用验收模式")
     if settings.model_acceptance_mode:

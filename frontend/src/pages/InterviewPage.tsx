@@ -43,7 +43,7 @@ export function InterviewConfigPage() {
         {([['bank','标准题库','围绕技术知识进行练习'],['role','预设岗位','结合岗位方向进行面试']] as const).map(([value,title,desc]) => <button key={value} className={`interview-choice ${kind === value ? 'selected' : ''}`} onClick={() => { setKind(value); setPresetId('') }}><strong>{title}</strong><small>{desc}</small></button>)}
       </div>
       {presets.isPending && <p className="interview-hint">正在加载预设...</p>}<Notice error={presets.error}/>
-      {!presets.isPending && !presets.isError && !choices.length && <div className="alert info">当前没有可用的{kind === 'bank' ? '标准题库' : '岗位预设'}，正式内容审核后才能开始面试。</div>}
+      {!presets.isPending && !presets.isError && !choices.length && <div className="alert info">当前没有可用的{kind === 'bank' ? '标准题库' : '岗位预设'}，正式内容审核后才能开始面试。<Link className="minor-link" to="/settings">查看使用指引</Link></div>}
       {choices.length > 0 && <label className="interview-field">选择预设<select value={presetId} onChange={e => setPresetId(e.target.value)}><option value="">请选择</option>{choices.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
       {presetId && <p className="interview-hint">{questions.isPending ? '正在检查题量...' : questions.isError ? '题库信息加载失败。' : `可用主问题：${questions.data?.length ?? 0} 道`}</p>}
       {kind === 'role' && <label className="interview-field">岗位 JD（可选）<textarea value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴岗位描述，最多 5000 个字符"/><small>{Array.from(jd).length} / 5000 字符；根据可识别的技术关键词优先匹配题目，不足时使用同题库其他题目。</small></label>}

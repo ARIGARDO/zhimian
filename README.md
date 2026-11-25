@@ -45,6 +45,8 @@ docker compose down             # 删除容器和网络，保留数据卷
 
 聊天模型只在服务端通过 `.env` 的 `MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_API_KEY` 配置；地址应指向 OpenAI 兼容 API 的基础路径。未配置时聊天会显示配置错误。使用真实供应商可能产生费用，并会向其发送用户提问、相关会话及检索到的知识片段；请先确认服务商条款和费用。密钥不要放到前端、日志或 Git 中。
 
+打开应用的“系统配置”可查看配置字段是否完整和地址格式是否有效；该页面不接收密钥，也不会请求供应商，因此不能证明密钥有效或服务兼容。修改 `.env` 后运行 `docker compose up -d --force-recreate backend` 重新创建服务，单纯 `restart` 不会更新容器环境变量。
+
 ## 题库审核与启用
 
 [候选题清单](docs/interview/M3-06A-question-manifest.json)和[逐题签核表](docs/interview/M3-06A-signoff.md)可供人工核对；当前清单的状态是待审核。正式审核由负责人逐题决定，演示库中的测试标记不能作为正式审核。工具不会自动批准题目。
@@ -89,7 +91,7 @@ Embedding 与聊天模型分别配置：`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`
 docker compose run --rm backend python -m app.tools.index_knowledge
 ```
 
-该命令会调用 Embedding 服务，可能产生费用；文章更新后需重新索引。演示模式只调用容器内模拟服务。不要将模拟向量当作真实语义检索质量验证。
+该命令会调用 Embedding 服务，可能产生费用；文章更新或切换供应商、模型后需重新索引。旧版以模型名标识的索引也需执行一次重建；旧数据不会被直接删除，未重建期间会回退关键词检索。同一供应商在不改变模型名时更新模型，需在索引命令后添加 `--force`，并在逐条重建期间暂停问答，避免混用不同版本的向量。演示模式只调用容器内模拟服务。不要将模拟向量当作真实语义检索质量验证。
 
 ## 测试与已知限制
 
