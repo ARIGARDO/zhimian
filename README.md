@@ -66,15 +66,15 @@ docker compose run --rm -v "$PWD/docs/interview:/materials:ro" backend \
 填写实际审核人、带时区的 ISO 8601 审核时间及逐题摘要后，可先只校验，再分别执行审核入库和启用：
 
 ```bash
-# 将签核目录只读挂载；请先自行确认文件内容和目标数据库。
-docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config/zhimian:/approvals:ro" backend \
-  python -m app.tools.publish_interview_bank --manifest /materials/M3-06A-question-manifest.json --approval /approvals/question-approval.json
+# 仅将签核文件只读挂载；请先自行确认文件内容和目标数据库。
+docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config/zhimian/question-approval.json:/approval.json:ro" backend \
+  python -m app.tools.publish_interview_bank --manifest /materials/M3-06A-question-manifest.json --approval /approval.json
 # 审核入库，不启用
-docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config/zhimian:/approvals:ro" backend \
-  python -m app.tools.publish_interview_bank --manifest /materials/M3-06A-question-manifest.json --approval /approvals/question-approval.json --apply
+docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config/zhimian/question-approval.json:/approval.json:ro" backend \
+  python -m app.tools.publish_interview_bank --manifest /materials/M3-06A-question-manifest.json --approval /approval.json --apply
 # 单独启用已经审核入库的题目
-docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config/zhimian:/approvals:ro" backend \
-  python -m app.tools.publish_interview_bank --manifest /materials/M3-06A-question-manifest.json --approval /approvals/question-approval.json --enable
+docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config/zhimian/question-approval.json:/approval.json:ro" backend \
+  python -m app.tools.publish_interview_bank --manifest /materials/M3-06A-question-manifest.json --approval /approval.json --enable
 ```
 
 签核文件是本地操作人的声明，并非加密身份签名；请妥善保存实际审批证据。工具核验题目完整摘要、保留审核人和时间，重复执行不重复创建；已发布内容不可覆盖，变更须创建新版本。未审核题目不会被混入；题量不足会提示。数据库约束需正常保留，历史场次继续使用冻结版本。
