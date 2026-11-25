@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     model_name: str = ""
     model_api_key: SecretStr = SecretStr("")
     model_timeout: float = 60.0
+    # Embedding 单独配置；未设置时不发起网络请求，退回关键词检索。
+    embedding_base_url: str = ''
+    embedding_model: str = ''
+    embedding_api_key: SecretStr = SecretStr('')
+    embedding_timeout: float = 5.0
     # 仅隔离验收显式启用；默认不改变供应商请求。
     model_acceptance_mode: bool = False
     model_acceptance_isolated_account: bool = False

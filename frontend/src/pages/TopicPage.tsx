@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { TopicDetail } from '../api/types'
 import { learningKeys, useTopic, useTopics, useUpdateProgress } from '../features/learning/queries'
@@ -11,6 +11,7 @@ import { learningKeys, useTopic, useTopics, useUpdateProgress } from '../feature
 export function TopicPage() {
   const { topicId } = useParams<{ topicId: string }>()
   const id = topicId ?? ''
+  const section = new URLSearchParams(useLocation().search).get('section')
   const current = useTopic(id)
   const topics = useTopics()
   return <>
@@ -20,13 +21,13 @@ export function TopicPage() {
     {current.isError && <div className="alert error">无法加载专题。<button onClick={() => void current.refetch()}>重试</button><Link to="/learn">返回目录</Link></div>}
     {current.data && <div className="reader-layout">
       <aside className="surface-card lesson-sidebar"><h4>当前方向 · {current.data.category_label}</h4><nav aria-label="当前方向的章节">{topics.data?.filter(t => t.category === current.data!.category).map(t => <Link className={`lesson-link ${t.id===id?'active':''}`} to={`/learn/topics/${t.id}`} key={t.id}><span className="lesson-dot"/>{t.title}{t.completed && <CheckCircle2 size={14}/>}</Link>)}</nav><p>这里只列出当前方向的专题。其他课程请返回内容选择页。</p></aside>
-      <TopicReader key={id} topic={current.data} />
+      <TopicReader key={`${id}:${section ?? ''}`} topic={current.data} section={section} />
       <aside className="surface-card assistant-aside"><div className="assistant-header"><strong>专题 AI 助手</strong><p>围绕当前专题提问，会话与其他专题分开保存。</p><Link className="app-button app-button-primary app-button-sm" to={`/learn/topics/${encodeURIComponent(id)}/chat`}><MessageCircle size={14}/> 进入专题问答</Link></div></aside>
     </div>}
   </>
 }
 
-function TopicReader({ topic }: { topic: TopicDetail }) {
+function TopicReader({ topic, section }: { topic: TopicDetail; section: string | null }) {
   const [position, setPosition] = useState(topic.reading_position)
   const [positionError, setPositionError] = useState(false)
   const queryClient = useQueryClient()
@@ -40,10 +41,14 @@ function TopicReader({ topic }: { topic: TopicDetail }) {
     // Markdown 渲染后恢复文章内部滚动位置；刷新和专题切换都会重新加载数据库位置。
     const frame = requestAnimationFrame(() => {
       const el = articleRef.current
+      if (el && section) {
+        const heading = [...el.querySelectorAll('h1,h2,h3')].find(node => node.textContent?.trim() === section)
+        if (heading) { heading.scrollIntoView({ block: 'start' }); return }
+      }
       if (el) el.scrollTop = (el.scrollHeight - el.clientHeight) * topic.reading_position
     })
     return () => cancelAnimationFrame(frame)
-  }, [topic.id, topic.reading_position])
+  }, [topic.id, topic.reading_position, section])
 
   useEffect(() => () => {
     if (saveTimer.current) {

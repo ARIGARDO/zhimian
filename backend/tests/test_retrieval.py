@@ -20,3 +20,12 @@ async def test_retrieval_scope_and_no_match(tmp_path):
         assert scoped and all(item['topic_id'] == 'python' for item in scoped)
         assert await retrieve(db, 'unmatchedkeyword', None) == []
     await engine.dispose()
+
+
+def test_sections_have_stable_ids_and_source_labels():
+    from app.services.retrieval import topic_chunks
+    topic=Topic(id='x', title='标题', content_md='# 标题\n前言\n## 事务\n事务内容')
+    first=topic_chunks(topic)
+    assert first == topic_chunks(topic)
+    assert first[-1]['section']=='事务' and first[-1]['topic_id']=='x'
+    assert first[-1]['excerpt'].startswith('## 事务')
