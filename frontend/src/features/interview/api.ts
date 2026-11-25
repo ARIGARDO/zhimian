@@ -3,7 +3,7 @@ import { ApiError } from '../../api/client'
 export type Preset = { id: string; kind: 'bank' | 'role'; name: string; version: number }
 export type Status = 'pending' | 'in_progress' | 'completed' | 'terminated' | 'interrupted'
 export type Question = { id: string; main_number: number; depth: number; position: number; content: string; closed_at: string | null; answer: { id: string; kind: 'answer' | 'skip'; content: string; submitted_at: string } | null }
-export type Interview = { id: string; status: Status; mode: 'practice' | 'formal'; preset: Preset; limit_type: 'time' | 'count'; main_limit: number | null; duration_seconds: number | null; started_at: string | null; deadline_at: string | null; ended_at: string | null; end_reason: string | null; main_count: number; valid_main_count: number; questions: Question[] }
+export type Interview = { id: string; status: Status; mode: 'practice' | 'formal'; preset: Preset; limit_type: 'time' | 'count'; main_limit: number | null; duration_seconds: number | null; started_at: string | null; deadline_at: string | null; ended_at: string | null; end_reason: string | null; selection_notice?: string | null; main_count: number; valid_main_count: number; questions: Question[] }
 export type History = Pick<Interview, 'id' | 'status' | 'mode' | 'preset' | 'ended_at'> & { created_at: string }
 export type Review = { answer_id: string; review: string }
 export type Report = { summary: string; items: Review[]; overall_score?: number }

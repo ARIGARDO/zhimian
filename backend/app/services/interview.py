@@ -181,8 +181,9 @@ class InterviewService:
             self.db.add(item); await self.db.flush()
             return item.id
 
-    async def create_from_preset(self, *, key: str, preset_id: str, mode: str, limit_type: str, main_limit: int | None, duration_seconds: int | None, jd: str | None) -> dict:
+    async def create_from_preset(self, *, key: str, preset_id: str, mode: str, limit_type: str, main_limit: int | None, duration_seconds: int | None, jd: str | None, difficulty: str | None = None) -> dict:
         payload = {'preset_id': preset_id, 'mode': mode, 'limit_type': limit_type, 'main_limit': main_limit, 'duration_seconds': duration_seconds, 'jd': jd}
+        if difficulty is not None: payload['difficulty'] = difficulty
         digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         if not key or len(key) > 100: raise InterviewValidation('幂等键无效')
         async with self.db.begin():
@@ -195,10 +196,15 @@ class InterviewService:
                 return {'id': previous.id, 'status': 'pending'}
             preset = await self.db.get(InterviewPreset, preset_id)
             if not preset or not preset.active: raise InterviewNotFound('预设不存在或不可用')
-            questions = (await self.db.scalars(select(InterviewQuestionBank).where(InterviewQuestionBank.preset_id == preset.id, InterviewQuestionBank.active.is_(True)).order_by(InterviewQuestionBank.id).with_for_update())).all()
+            bank_id = preset.config.get('bank_preset_id') if preset.kind == 'role' else None
+            if bank_id:
+                bank = await self.db.get(InterviewPreset, bank_id)
+                if not bank or bank.kind != 'bank' or not bank.active: raise InterviewConflict('关联题库不可用')
+            questions = (await self.db.scalars(select(InterviewQuestionBank).where(InterviewQuestionBank.preset_id == (bank_id or preset.id), InterviewQuestionBank.active.is_(True)).order_by(InterviewQuestionBank.id).with_for_update())).all()
             self._validate_configuration(mode, limit_type, main_limit, duration_seconds, {'kind': preset.kind}, {}, jd)
             if not questions: raise InterviewConflict('题库暂无可用题目')
-            if limit_type == 'count' and main_limit is not None and main_limit > len(questions): raise InterviewConflict('题库可用主问题不足')
+            if bank_id and any(q.content_code is None or q.review_status != 'approved' or not q.reviewed_by or not q.reviewed_at for q in questions):
+                raise InterviewConflict('岗位关联题库必须全部经过审核')
             preset_snapshot = {'id': preset.id, 'kind': preset.kind, 'name': preset.name, 'version': preset.version}
             reviewed = any(q.content_code is not None for q in questions)
             if not reviewed:
@@ -207,7 +213,7 @@ class InterviewService:
                 config_snapshot = {'question_plan':plan, 'evaluation_policy':'legacy-v1'}
             else:
                 from app.services.question_version import question_digest, question_payload, validate_review_capacity
-                if preset.kind != 'bank' or any(q.content_code is None or q.review_status != 'approved' or not q.reviewed_by or not q.reviewed_at for q in questions):
+                if (preset.kind != 'bank' and not bank_id) or any(q.content_code is None or q.review_status != 'approved' or not q.reviewed_by or not q.reviewed_at for q in questions):
                     raise InterviewConflict('题库包含未审核或不兼容版本')
                 questions.sort(key=lambda q: ({'basic':0, 'intermediate':1, 'challenge':2}.get(q.difficulty, 9), q.sort_order, q.content_code))
                 plan = []
@@ -218,6 +224,15 @@ class InterviewService:
                                  'content_code':q.content_code, 'digest':question_digest(payload)})
                 config_snapshot = {'question_plan':plan, 'evaluation_policy':'reviewed-v1'}
                 preset_snapshot['evaluation_policy'] = 'reviewed-v1'
+            from app.services.interview_selection import select_questions
+            try:
+                selected, notice = select_questions(questions, difficulty, jd, main_limit if limit_type == 'count' else None)
+            except ValueError as exc:
+                raise InterviewConflict(str(exc)) from exc
+            plan_by_id = {entry['id']: entry for entry in config_snapshot['question_plan']}
+            config_snapshot['question_plan'] = [plan_by_id[q.id] for q in selected]
+            config_snapshot['selection_notice'] = notice
+            config_snapshot['difficulty'] = difficulty
             snapshot = self._validate_configuration(mode, limit_type, main_limit, duration_seconds, preset_snapshot, config_snapshot, jd)
             item = Interview(status='pending', create_key=key, create_hash=digest, preset_id=preset.id, mode=mode, limit_type=limit_type, main_limit=main_limit, duration_seconds=duration_seconds, preset_snapshot=preset_snapshot, config_snapshot=snapshot, jd=jd, main_count=0, valid_main_count=0, version=0)
             self.db.add(item); await self.db.flush()
@@ -266,7 +281,7 @@ class InterviewService:
             questions = (await self.db.scalars(select(InterviewQuestion).where(InterviewQuestion.interview_id == item.id).order_by(InterviewQuestion.main_number, InterviewQuestion.position))).all()
             answers = (await self.db.scalars(select(InterviewAnswer).where(InterviewAnswer.interview_id == item.id))).all()
             by_question = {a.question_id: {'id': a.id, 'kind': a.kind, 'content': a.content, 'submitted_at': a.submitted_at} for a in answers}
-            return {'id': item.id, 'status': item.status, 'mode': item.mode, 'preset': public_preset(item.preset_snapshot), 'limit_type': item.limit_type, 'main_limit': item.main_limit, 'duration_seconds': item.duration_seconds, 'started_at': item.started_at, 'deadline_at': item.deadline_at, 'ended_at': item.ended_at, 'end_reason': item.end_reason, 'main_count': item.main_count, 'valid_main_count': item.valid_main_count, 'version': item.version, 'questions': [{'id': q.id, 'main_number': q.main_number, 'depth': q.depth, 'position': q.position, 'content': q.content, 'closed_at': q.closed_at, 'answer': by_question.get(q.id)} for q in questions]}
+            return {'id': item.id, 'status': item.status, 'mode': item.mode, 'preset': public_preset(item.preset_snapshot), 'limit_type': item.limit_type, 'main_limit': item.main_limit, 'duration_seconds': item.duration_seconds, 'started_at': item.started_at, 'deadline_at': item.deadline_at, 'ended_at': item.ended_at, 'end_reason': item.end_reason, 'selection_notice': item.config_snapshot.get('selection_notice'), 'main_count': item.main_count, 'valid_main_count': item.valid_main_count, 'version': item.version, 'questions': [{'id': q.id, 'main_number': q.main_number, 'depth': q.depth, 'position': q.position, 'content': q.content, 'closed_at': q.closed_at, 'answer': by_question.get(q.id)} for q in questions]}
 
     async def start(self, interview_id: str, key: str) -> dict:
         async with self.db.begin():

@@ -25,13 +25,14 @@ export function InterviewConfigPage() {
   const [count, setCount] = useState(3)
   const [minutes, setMinutes] = useState(30)
   const [jd, setJd] = useState('')
+  const [difficulty, setDifficulty] = useState('')
   const action = useAction('create')
   const questions = useQuery({ queryKey: ['interview-preset-questions', presetId], queryFn: () => interviewApi.questions(presetId), enabled: !!presetId })
   const choices = presets.data?.filter(p => p.kind === kind) ?? []
   const shortage = limit === 'count' && questions.data !== undefined && count > questions.data.length
   const jdTooLong = Array.from(jd).length > 5000
   const create = async () => {
-    const body = { preset_id: presetId, mode, limit_type: limit, main_limit: limit === 'count' ? count : null, duration_seconds: limit === 'time' ? minutes * 60 : null, jd: kind === 'role' && jd ? jd : null }
+    const body = { preset_id: presetId, mode, limit_type: limit, main_limit: limit === 'count' ? count : null, duration_seconds: limit === 'time' ? minutes * 60 : null, jd: kind === 'role' && jd ? jd : null, difficulty: difficulty || null }
     const result = await action.send<{ id: string }>('/interviews', body)
     if (result?.id) navigate(`/interviews/${result.id}`)
   }
@@ -45,7 +46,8 @@ export function InterviewConfigPage() {
       {!presets.isPending && !presets.isError && !choices.length && <div className="alert info">当前没有可用的{kind === 'bank' ? '标准题库' : '岗位预设'}，正式内容审核后才能开始面试。</div>}
       {choices.length > 0 && <label className="interview-field">选择预设<select value={presetId} onChange={e => setPresetId(e.target.value)}><option value="">请选择</option>{choices.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
       {presetId && <p className="interview-hint">{questions.isPending ? '正在检查题量...' : questions.isError ? '题库信息加载失败。' : `可用主问题：${questions.data?.length ?? 0} 道`}</p>}
-      {kind === 'role' && <label className="interview-field">岗位 JD（可选）<textarea value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴岗位描述，最多 5000 个字符"/><small>{Array.from(jd).length} / 5000 字符；当前仅保存 JD，题目仍使用岗位预设，不会根据 JD 自动调整。</small></label>}
+      {kind === 'role' && <label className="interview-field">岗位 JD（可选）<textarea value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴岗位描述，最多 5000 个字符"/><small>{Array.from(jd).length} / 5000 字符；根据可识别的技术关键词优先匹配题目，不足时使用同题库其他题目。</small></label>}
+      <label className="interview-field">题目难度<select value={difficulty} onChange={e => setDifficulty(e.target.value)}><option value="">不限难度</option><option value="basic">基础</option><option value="intermediate">进阶</option><option value="challenge">挑战</option></select><small>旧版题库可能没有难度标记；题量不足时可切换为不限难度。</small></label>
       </section>
       <section className="surface-card interview-section"><div className="section-kicker">02 / 面试方式</div><h2>选择模式</h2><div className="interview-choice-row">{([['practice','练习模式','可跳题，作答后可查看反馈'],['formal','正式模式','结束前不展示反馈和评分']] as const).map(([value,title,desc]) => <button key={value} className={`interview-choice ${mode === value ? 'selected' : ''}`} onClick={() => setMode(value)}><strong>{title}</strong><small>{desc}</small></button>)}</div></section>
       <section className="surface-card interview-section"><div className="section-kicker">03 / 面试限制</div><h2>设置面试节奏</h2><div className="filter-buttons"><button className={`filter ${limit === 'count' ? 'selected' : ''}`} onClick={() => setLimit('count')}>按题数</button><button className={`filter ${limit === 'time' ? 'selected' : ''}`} onClick={() => setLimit('time')}>按时长</button></div>
@@ -131,7 +133,7 @@ function InterviewSession({ interviewId }: { interviewId: string }) {
   if (detail.isPending) return <div className="surface-card empty-state">正在读取面试状态...</div>
   if (!data) return <><Head title="无法读取面试">请检查面试地址或网络连接。</Head><Notice error={detail.error}/><button className={outline} onClick={refresh}>重新加载</button></>
   const terminal = ['completed','terminated','interrupted'].includes(data.status)
-  return <><div className="row-between"><Head title={data.preset?.name || '模拟面试'}>{label[data.status]} · {data.mode === 'practice' ? '练习模式' : '正式模式'} · 主问题 {data.main_count}{data.main_limit ? ` / ${data.main_limit}` : ''}</Head><Link className={outline} to="/interviews">面试记录</Link></div>
+  return <><div className="row-between"><Head title={data.preset?.name || '模拟面试'}>{label[data.status]} · {data.mode === 'practice' ? '练习模式' : '正式模式'} · 主问题 {data.main_count}{data.main_limit ? ` / ${data.main_limit}` : ''}</Head><Link className={outline} to="/interviews">面试记录</Link></div>{data.selection_notice && <div className="alert info">{data.selection_notice}</div>}
     {terminal ? <div className="surface-card interview-terminal"><FileText size={30}/><h2>{data.status === 'completed' ? '面试已完成' : '面试已结束'}</h2><p>{data.status === 'completed' ? '可以生成并查看完整报告。' : '此场次不能继续作答，只能查看有效回答的文字复盘。'}</p><Link className={button} to={`/interviews/${data.id}/report`}>查看复盘</Link></div> : <div className="interview-session-grid"><div className="interview-stack">
       {data.status === 'pending' && <div className="surface-card interview-section"><h2>准备好开始了吗？</h2><p>开始后由服务端记录时间；退出页面不会创建新的场次。</p><button className={button} disabled={action.busy || !!action.pending} onClick={() => void post('start')}>开始面试</button></div>}
       {data.status === 'in_progress' && (!main || main.closed_at) && <div className="surface-card interview-section"><span className="pill teal">{main ? '本题已结束' : '面试已开始'}</span><h2>{main ? '准备下一道主问题' : '准备第一道主问题'}</h2><p>题目从创建时确定的题库中获取。</p><button className={button} disabled={action.busy || !!action.pending} onClick={() => void post('questions/next')}>获取下一题 <ArrowRight size={15}/></button><p className="interview-hint">若时长模式题库已耗尽，可等待时限到期或主动结束；耗尽策略尚待确认。</p></div>}

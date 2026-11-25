@@ -40,6 +40,7 @@ class CreateInterview(BaseModel):
     main_limit: int | None = Field(default=None, ge=3, strict=True)
     duration_seconds: int | None = Field(default=None, gt=0, strict=True)
     jd: str | None = Field(default=None, max_length=5000)
+    difficulty: Literal['basic', 'intermediate', 'challenge'] | None = None
 
 
 class AnswerRequest(BaseModel):
@@ -75,7 +76,11 @@ async def presets(db: Database):
 async def preset_questions(preset_id: str, db: Database):
     preset = await db.get(InterviewPreset, preset_id)
     if not preset or not preset.active: raise HTTPException(404, '预设不存在或不可用')
-    items = (await db.scalars(select(InterviewQuestionBank).where(InterviewQuestionBank.preset_id == preset_id, InterviewQuestionBank.active.is_(True)).order_by(InterviewQuestionBank.id))).all()
+    bank_id = preset.config.get('bank_preset_id') if preset.kind == 'role' else None
+    if bank_id:
+        bank = await db.get(InterviewPreset, bank_id)
+        if not bank or bank.kind != 'bank' or not bank.active: raise HTTPException(409, '关联题库不可用')
+    items = (await db.scalars(select(InterviewQuestionBank).where(InterviewQuestionBank.preset_id == (bank_id or preset_id), InterviewQuestionBank.active.is_(True)).order_by(InterviewQuestionBank.id))).all()
     return [{'id': q.id, 'topic': q.topic, 'version': q.version} for q in items]
 
 
