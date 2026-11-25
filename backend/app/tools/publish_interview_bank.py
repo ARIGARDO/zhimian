@@ -73,6 +73,11 @@ async def publish(presets, questions, reviewer, approved_at, enable=False):
             await db.flush()
             if enable:
                 for preset_id in {q['preset_id'] for q in questions}:
+                    active_rows = (await db.scalars(select(InterviewQuestionBank).where(
+                        InterviewQuestionBank.preset_id == preset_id,
+                        InterviewQuestionBank.active.is_(True)).with_for_update())).all()
+                    if any(not row.content_code or row.review_status != 'approved' or not row.reviewed_by or not row.reviewed_at for row in active_rows):
+                        raise ValueError('题库包含已启用的未审核题目，不能混用')
                     preset = await db.get(InterviewPreset, preset_id, with_for_update=True)
                     preset.active = True
     await get_engine().dispose()
