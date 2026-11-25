@@ -1,0 +1,58 @@
+# 独立演示：单独项目、数据库和模型，不连接现有正式服务。
+name: zhimian-demo
+services:
+  demo-db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: zhimian_demo
+      POSTGRES_PASSWORD: demo-only
+      POSTGRES_DB: zhimian_demo
+    volumes:
+      - demo-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zhimian_demo -d zhimian_demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  init:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zhimian_demo:demo-only@demo-db:5432/zhimian_demo
+      ZHIMIAN_DEMO_ONLY: 'true'
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.demo.seed"]
+    depends_on:
+      demo-db:
+        condition: service_healthy
+  model:
+    build: ./backend
+    command: ["uvicorn", "app.demo.model:app", "--host", "0.0.0.0", "--port", "8001"]
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zhimian_demo:demo-only@demo-db:5432/zhimian_demo
+      MODEL_BASE_URL: http://model:8001/v1
+      MODEL_NAME: local-demo
+      MODEL_API_KEY: local-demo
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      model:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready',timeout=5)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_DEMO: 'true'
+    ports:
+      - '127.0.0.1:8081:80'
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  demo-data:

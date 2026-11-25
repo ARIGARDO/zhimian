@@ -45,7 +45,7 @@ export function AppLayout() {
         <div className="crumb"><button className="mobile-menu" aria-label="打开导航" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>工作台 / <strong>{selected?.label ?? '系统配置'}</strong></div>
         <div className="top-actions"><span className="status-tag"><span className="dot"/>实际 API</span><span className="desktop-only">单实例 · 无平台账号</span><BrainCircuit size={17} color="#6f889c" /></div>
       </header>
-      <main className="page-content"><Outlet /></main>
+      <main className="page-content">{import.meta.env.VITE_DEMO === 'true' && <div className="alert info">演示环境：题目和模型回复均为模拟内容，评价与分数不代表真实能力。</div>}<Outlet /></main>
     </div>
   </div>
 }
