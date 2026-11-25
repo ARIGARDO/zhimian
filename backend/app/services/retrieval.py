@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.knowledge import KnowledgeChunk
 from app.models.learning import Topic
-from app.services.embeddings import embed
+from app.services.embeddings import embed, embedding_index_key
 
 
 def terms(text: str) -> set[str]:
@@ -45,7 +45,7 @@ async def retrieve(db: AsyncSession, query: str, topic_id: str | None) -> list[d
         try:
             query_vector = (await embed([query]))[0]
             distance = KnowledgeChunk.embedding.cosine_distance(query_vector)
-            stmt = select(KnowledgeChunk.id, distance.label('distance')).where(KnowledgeChunk.model == settings.embedding_model)
+            stmt = select(KnowledgeChunk.id, distance.label('distance')).where(KnowledgeChunk.model == embedding_index_key(settings))
             if topic_id:
                 stmt = stmt.where(KnowledgeChunk.topic_id == topic_id)
             async with db.begin_nested():

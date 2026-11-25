@@ -2,7 +2,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 from app.core.config import Settings
-from app.services.embeddings import embed
+from app.services.embeddings import embed, embedding_index_key
 
 
 @pytest.mark.asyncio
@@ -26,3 +26,11 @@ async def test_embedding_rejects_invalid_dimensions_or_values(monkeypatch, vecto
     monkeypatch.setattr('app.services.embeddings.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={'data': [{'index': 0, 'embedding': vector}]}))))
     with pytest.raises(ValueError):
         await embed(['test'])
+
+
+def test_embedding_index_key_separates_providers_and_normalizes_url():
+    one = Settings(_env_file=None, embedding_base_url='https://first.example/v1/', embedding_model='same')
+    same = Settings(_env_file=None, embedding_base_url='https://first.example/v1', embedding_model='same')
+    other = Settings(_env_file=None, embedding_base_url='https://second.example/v1', embedding_model='same')
+    assert embedding_index_key(one) == embedding_index_key(same)
+    assert embedding_index_key(one) != embedding_index_key(other)
