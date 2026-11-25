@@ -48,6 +48,9 @@ async def test_chat_scopes_and_stream(tmp_path, monkeypatch):
             assert '专题资料' in seen[0]['content'] and seen[-1]['content'] == '解释一下'
             messages = (await client.get(f"/api/v1/conversations/{topic['id']}/messages?topic_id=topic")).json()
             assert [(m['role'], m['content'], m['status']) for m in messages] == [('user', '解释一下', 'complete'), ('assistant', '你好世界', 'complete')]
+            seen.clear()
+            empty = await client.post(f"/api/v1/conversations/{general['id']}/messages/stream", json={'content': 'unmatchedkeyword'})
+            assert '"sources": []' in empty.text and '未检索到相关知识资料' in seen[0]['content']
             assert (await client.delete(f"/api/v1/conversations/{topic['id']}?topic_id=topic")).status_code == 204
             assert (await client.get(f"/api/v1/conversations/{topic['id']}/messages?topic_id=topic")).status_code == 404
     finally:
