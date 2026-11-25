@@ -1,3 +1,4 @@
+import json
 import httpx
 import pytest
 from pydantic import SecretStr
@@ -12,10 +13,15 @@ async def test_embedding_validation_and_missing_configuration(monkeypatch):
         await embed(['test'])
     monkeypatch.setattr('app.services.embeddings.get_settings', lambda: Settings(_env_file=None, embedding_base_url='http://local', embedding_model='mock', embedding_api_key=SecretStr('fake')))
     original=httpx.AsyncClient
+    requests = []
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={'data': [{'index': 0, 'embedding': [1.0] * 384}]})
     def mocked(**_kwargs):
-        return original(transport=httpx.MockTransport(lambda request: httpx.Response(200,json={'data':[{'index':0,'embedding':[1.0]*384}]})))
+        return original(transport=httpx.MockTransport(handler))
     monkeypatch.setattr('app.services.embeddings.httpx.AsyncClient', mocked)
     assert len((await embed(['test']))[0])==384
+    assert requests == [{'model': 'mock', 'input': ['test'], 'dimensions': 384}]
 
 
 @pytest.mark.asyncio
