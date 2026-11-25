@@ -19,10 +19,17 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://zhimian_demo:demo-only@demo-db:5432/zhimian_demo
       ZHIMIAN_DEMO_ONLY: 'true'
-    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.demo.seed"]
+      EMBEDDING_BASE_URL: http://model:8001/v1
+      EMBEDDING_MODEL: demo-hash-384
+      EMBEDDING_API_KEY: local-demo
+    volumes:
+      - ./docs/interview/M3-06A-question-manifest.json:/demo-data/questions.json:ro
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.demo.seed && (python -m app.tools.index_knowledge || echo '模拟向量索引不可用，使用关键词检索')"]
     depends_on:
       demo-db:
         condition: service_healthy
+      model:
+        condition: service_started
   model:
     build: ./backend
     command: ["uvicorn", "app.demo.model:app", "--host", "0.0.0.0", "--port", "8001"]
@@ -33,6 +40,9 @@ services:
       MODEL_BASE_URL: http://model:8001/v1
       MODEL_NAME: local-demo
       MODEL_API_KEY: local-demo
+      EMBEDDING_BASE_URL: http://model:8001/v1
+      EMBEDDING_MODEL: demo-hash-384
+      EMBEDDING_API_KEY: local-demo
     depends_on:
       init:
         condition: service_completed_successfully

@@ -1,6 +1,8 @@
 """向严格限定的演示数据库写入未审核的示例题，不修改正式题库。"""
 import asyncio
 import os
+from datetime import datetime, timezone
+from app.tools.import_interview_draft import load_manifest
 from urllib.parse import urlsplit
 
 from sqlalchemy.dialects.postgresql import insert
@@ -34,6 +36,15 @@ async def seed_demo():
             await db.execute(insert(InterviewPreset).values(id=preset_id, kind=kind, name=name, version=1, active=True, config={}).on_conflict_do_nothing(index_elements=['id']))
             for index, (content, topic) in enumerate(questions, 1):
                 await db.execute(insert(InterviewQuestionBank).values(id=(f'demo-{index:02d}' if preset_id == 'demo-python' else f'{preset_id}-{index:02d}'), preset_id=preset_id, content=content, topic=topic, version=1, active=True).on_conflict_do_nothing(index_elements=['id']))
+        # 审核标记仅存在于演示数据库，用于验证冻结版本，不代表正式审核。
+        presets_data, questions_data, _ = load_manifest('/demo-data/questions.json')
+        mapping = {'bank-python-v1': 'demo-reviewed-python', 'bank-ai-v1': 'demo-reviewed-ai'}
+        for preset in presets_data:
+            demo_id = mapping[preset['id']]
+            await db.execute(insert(InterviewPreset).values(id=demo_id, kind='bank', name='隔离测试审核 · ' + preset['name'], version=1, active=True, config={}).on_conflict_do_nothing(index_elements=['id']))
+        for q in questions_data:
+            await db.execute(insert(InterviewQuestionBank).values(id='demo-' + q['id'], preset_id=mapping[q['preset_id']], content=q['content'], topic=q['topic'], version=q['version'], active=True, content_code=q['code'], difficulty=q['difficulty'], sort_order=q['sort_order'], review_status='approved', reviewed_by='隔离测试标记', reviewed_at=datetime.now(timezone.utc), review_material=q['material']).on_conflict_do_nothing(index_elements=['id']))
+        await db.execute(insert(InterviewPreset).values(id='demo-reviewed-role', kind='role', name='隔离测试 · Python 岗位（JD 匹配）', version=1, active=True, config={'bank_preset_id': 'demo-reviewed-python'}).on_conflict_do_nothing(index_elements=['id']))
         await db.commit()
     await get_engine().dispose()
 

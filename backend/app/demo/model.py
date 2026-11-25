@@ -1,5 +1,7 @@
 """本地确定性模拟接口；输出仅用于体验流程，不代表 AI 评价。"""
 import json
+import hashlib
+from app.services.retrieval import terms
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 
@@ -27,3 +29,18 @@ async def chat(request: Request):
         yield 'data: ' + json.dumps({'choices': [{'delta': {'content': content}, 'finish_reason': None}]}, ensure_ascii=False) + '\n\n'
         yield 'data: [DONE]\n\n'
     return StreamingResponse(events(), media_type='text/event-stream')
+
+
+@app.post('/v1/embeddings')
+async def embeddings(request: Request):
+    data = await request.json()
+    inputs = data.get('input', [])
+    if isinstance(inputs, str): inputs = [inputs]
+    result = []
+    for index, text in enumerate(inputs):
+        vector = [0.0] * 384
+        for word in terms(text):
+            vector[int.from_bytes(hashlib.sha256(word.encode()).digest()[:4], 'big') % 384] += 1.0
+        if not any(vector): vector[0] = 1.0
+        result.append({'index': index, 'embedding': vector})
+    return {'model': 'demo-hash-384', 'data': result}
