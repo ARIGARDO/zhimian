@@ -14,7 +14,9 @@ async def embed(texts: list[str]) -> list[list[float]]:
             json={'model': settings.embedding_model, 'input': texts, 'dimensions': 384})
         result.raise_for_status()
         data = sorted(result.json()['data'], key=lambda item: item['index'])
+        if [item['index'] for item in data] != list(range(len(texts))):
+            raise ValueError('embedding 返回顺序无效')
     vectors = [item['embedding'] for item in data]
-    if len(vectors) != len(texts) or any(len(v) != 384 or any(not isinstance(x, (int, float)) or not math.isfinite(x) for x in v) for v in vectors):
+    if len(vectors) != len(texts) or any(len(v) != 384 or any(type(x) not in (int, float) or not math.isfinite(x) for x in v) or not any(v) for v in vectors):
         raise ValueError('embedding 维度或格式无效')
     return vectors
