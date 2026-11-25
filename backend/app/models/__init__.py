@@ -1,4 +1,4 @@
-from app.models.learning import LearningProgress, Topic
+from app.models.learning import LearningProgress, LearningTask, Topic
 
 __all__ = ["Topic", "LearningProgress"]
 from app.models.chat import Conversation, Message

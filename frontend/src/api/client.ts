@@ -17,7 +17,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export type LearningTask = { id: string; interview_id: string; answer_id: string; topic_id: string; topic_title: string; status: 'todo' | 'in_progress' | 'completed'; created_at: string }
+
 export const api = {
+  tasks: () => request<LearningTask[]>('/tasks'),
+  createTask: (body: { interview_id: string; answer_id: string; topic_id: string }) => request<LearningTask>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  updateTask: (id: string, status: LearningTask['status']) => request<LearningTask>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   topics: () => request<TopicSummary[]>('/topics'),
   topic: (id: string) => request<TopicDetail>(`/topics/${encodeURIComponent(id)}`),
   overview: () => request<Overview>('/overview'),

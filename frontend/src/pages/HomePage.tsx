@@ -2,10 +2,15 @@ import type { ReactNode } from 'react'
 import { ArrowRight, BookOpen, CheckCircle2, Clock, Database, MessageCircle, Mic } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useOverview, useTopics } from '../features/learning/queries'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../api/client'
+import { interviewApi } from '../features/interview/api'
 
 export function HomePage() {
   const overview = useOverview()
   const topics = useTopics()
+  const tasks = useQuery({ queryKey: ['tasks'], queryFn: api.tasks })
+  const interviews = useQuery({ queryKey: ['interviews', 'home'], queryFn: () => interviewApi.history('completed') })
   const first = topics.data?.find((topic) => !topic.completed) ?? topics.data?.[0]
   return <>
     <div className="hero">
@@ -17,9 +22,9 @@ export function HomePage() {
     <section className="section"><div className="section-title"><h2>你的学习概览</h2><Link className="minor-link" to="/growth">查看我的成长 <ArrowRight size={15}/></Link></div>
       <div className="metrics-grid">
         <Metric icon={<BookOpen/>} label="已完成章节" value={overview.data ? String(overview.data.completed_topics) : '—'} note="手动标记完成" />
-        <Metric icon={<Mic/>} label="模拟面试" value="—" note="M3 实现" />
-        <Metric icon={<CheckCircle2/>} label="学习任务" value="—" note="M5 实现" />
-        <Metric icon={<MessageCircle/>} label="AI 问答" value="—" note="M2 实现" />
+        <Metric icon={<Mic/>} label="已完成面试" value={interviews.data ? String(interviews.data.length) : '—'} note="最近记录（最多 100 场）" />
+        <Metric icon={<CheckCircle2/>} label="待完成任务" value={tasks.data ? String(tasks.data.filter(task => task.status !== 'completed').length) : '—'} note="由你确认加入" />
+        <Metric icon={<MessageCircle/>} label="学习进度" value={overview.data ? `${overview.data.started_topics} / ${overview.data.total_topics}` : '—'} note="已开始 / 全部专题" />
       </div>
       {(overview.isError || topics.isError) && <div className="alert error">无法连接学习 API。请检查 FastAPI 与 PostgreSQL 是否已启动、迁移并导入专题。<button onClick={() => { void overview.refetch(); void topics.refetch() }}>重试</button></div>}
     </section>

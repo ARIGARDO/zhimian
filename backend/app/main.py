@@ -9,6 +9,7 @@ from app.api.v1.interviews import router as interview_router
 from app.services.interview import InterviewConflict, InterviewNotFound, InterviewValidation
 from app.api.v1.chat import router as chat_router
 from app.api.v1.learning import router as learning_router
+from app.api.v1.tasks import router as tasks_router
 from app.core.config import get_settings
 from app.db.session import get_engine
 
@@ -55,4 +56,5 @@ async def interview_error(request, exc):
 
 app.include_router(interview_router, prefix="/api/v1")
 app.include_router(learning_router, prefix="/api/v1")
+app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")

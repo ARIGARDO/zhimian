@@ -66,7 +66,7 @@ function pages(data, report, actionResult = null) {
   const params = { useParams: () => ({ interviewId:id }), useNavigate: () => () => {}, Link: ({children}) => React.createElement('a', null, children) }
   const icons = new Proxy({}, { get: () => () => null })
   const useQuery = ({queryKey}) => ({ data: queryKey[1] === 'detail' ? data : report, isPending:false, isError:false, refetch() {} })
-  const page = compile('src/pages/InterviewPage.tsx', { react: React, 'react/jsx-runtime': require('react/jsx-runtime'), 'react-router-dom':params, '@tanstack/react-query': { useQuery }, 'lucide-react':icons, '../features/interview/api':{}, '../features/interview/useAction':{ errorText:String, useAction:() => ({pending:null,busy:false,error:'',result:actionResult,send(){}}) } })
+  const page = compile('src/pages/InterviewPage.tsx', { react: React, 'react/jsx-runtime': require('react/jsx-runtime'), 'react-router-dom':params, '@tanstack/react-query': { useQuery, useMutation: () => ({ mutate(){}, isPending:false }), useQueryClient: () => ({ invalidateQueries() {} }) }, '../api/client': { api: {} }, '../features/learning/queries': { useTopics: () => ({ data: [] }) }, 'lucide-react':icons, '../features/interview/api':{}, '../features/interview/useAction':{ errorText:String, useAction:() => ({pending:null,busy:false,error:'',result:actionResult,send(){}}) } })
   return { ...page, setId(value) { id=value } }
 }
 const question = { id:'q', main_number:1, depth:0, position:0, content:'问题', closed_at:null, answer:null }
@@ -93,6 +93,12 @@ test('未完成复盘不展示综合数字评分', () => {
   const p = pages({...interview, status:'terminated'}, {status:'ready',type:'partial',result:{summary:'文字复盘',overall_score:87,items:[]}})
   const html = renderToStaticMarkup(React.createElement(p.InterviewReportPage))
   assert.match(html, /部分文字复盘/); assert.doesNotMatch(html, /87|100|候选量表/)
+})
+
+test('演示报告不展示模拟占位分数', () => {
+  const p = pages({...interview, status:'completed'}, {status:'ready',type:'full',result:{summary:'【模拟复盘】仅用于演示',overall_score:0,items:[]}})
+  const html = renderToStaticMarkup(React.createElement(p.InterviewReportPage))
+  assert.match(html, /模拟复盘/); assert.doesNotMatch(html, /候选量表|\/ 100/)
 })
 
 test('模型操作达到尝试上限时禁用重试按钮', () => {

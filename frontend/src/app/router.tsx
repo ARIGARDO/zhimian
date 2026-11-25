@@ -6,6 +6,8 @@ import { LearnCatalogPage } from '../pages/LearnCatalogPage'
 import { TopicPage } from '../pages/TopicPage'
 import { ChatPage } from '../pages/ChatPage'
 import { ComingSoonPage } from '../pages/ComingSoonPage'
+import { TasksPage } from '../pages/TasksPage'
+import { GrowthPage } from '../pages/GrowthPage'
 const InterviewConfigPage = lazy(() => import('../pages/InterviewPage').then(m => ({ default: m.InterviewConfigPage })))
 const InterviewHistoryPage = lazy(() => import('../pages/InterviewPage').then(m => ({ default: m.InterviewHistoryPage })))
 const InterviewSessionPage = lazy(() => import('../pages/InterviewPage').then(m => ({ default: m.InterviewSessionPage })))
@@ -28,7 +30,10 @@ export function AppRouter() {
       <Route path="interviews/new" element={<InterviewConfigPage />} />
       <Route path="interviews/:interviewId" element={<InterviewSessionPage />} />
       <Route path="interviews/:interviewId/report" element={<InterviewReportPage />} />
-      {['knowledge','tasks','growth','settings','*'].map(path =>
+      <Route path="tasks" element={<TasksPage />} />
+      <Route path="knowledge" element={<LearnCatalogPage />} />
+      <Route path="growth" element={<GrowthPage />} />
+      {['settings','*'].map(path =>
         <Route key={path} path={path} element={<ComingSoonPage />} />)}
     </Route>
   </Routes></Suspense></BrowserRouter>

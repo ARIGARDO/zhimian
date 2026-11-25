@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api/client'
+import { useTopics } from '../features/learning/queries'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowRight, Clock3, FileText, Mic, Sparkles } from 'lucide-react'
 import { interviewApi } from '../features/interview/api'
@@ -140,10 +142,24 @@ function InterviewSession({ interviewId }: { interviewId: string }) {
   </>
 }
 
-function ReportBody({ report, full, questions }: { report: Report; full: boolean; questions: Question[] }) {
+function TaskChoice({ interviewId, answerId, review }: { interviewId: string; answerId: string; review: string }) {
+  const topics = useTopics()
+  const [topicId, setTopicId] = useState('')
+  const client = useQueryClient()
+  const create = useMutation({ mutationFn: () => api.createTask({ interview_id: interviewId, answer_id: answerId, topic_id: topicId }), onSuccess: () => client.invalidateQueries({ queryKey: ['tasks'] }) })
+  const tokens = (text: string) => { const normalized = text.toLowerCase(); return [...(normalized.match(/[a-z0-9_]{2,}/g) ?? []), ...Array.from(normalized).slice(0, -1).map((c, i) => c + normalized[i + 1]).filter(s => /^[\u4e00-\u9fff]{2}$/.test(s))] }
+  const reviewTerms = new Set(tokens(review))
+  const ranked = [...(topics.data ?? [])].map(topic => ({ topic, score: tokens(`${topic.title} ${topic.summary}`).filter(term => reviewTerms.has(term)).length })).sort((a, b) => b.score - a.score)
+  return <div><p className="interview-hint">根据复盘内容匹配相关专题（仅供参考），由你确认是否加入学习计划。</p>
+    <select aria-label="选择学习专题" value={topicId} onChange={e => setTopicId(e.target.value)}><option value="">选择专题</option>{ranked.map(({ topic, score }) => <option key={topic.id} value={topic.id}>{score > 0 ? '建议：' : ''}{topic.title}</option>)}</select>{' '}
+    <button className="app-button app-button-outline app-button-sm" disabled={!topicId || create.isPending} onClick={() => create.mutate()}>确认加入学习计划</button>
+    {create.isSuccess && <p>已加入学习计划。<Link className="minor-link" to="/tasks">查看任务</Link></p>}<Notice error={create.error}/></div>
+}
+
+function ReportBody({ interviewId, report, full, questions }: { interviewId: string; report: Report; full: boolean; questions: Question[] }) {
   const byAnswer = new Map(questions.filter(q => q.answer).map(q => [q.answer!.id, q]))
-  return <div className="interview-stack"><div className="surface-card interview-section"><div className="section-kicker">INTERVIEW REVIEW</div><h2>{full ? '完整面试报告' : '部分文字复盘'}</h2><p>{report.summary}</p>{full && typeof report.overall_score === 'number' && <div className="interview-score"><strong>{report.overall_score}</strong><span> / 100<br/>候选量表，尚待产品确认</span></div>}</div>
-    {report.items.map(item => { const q = byAnswer.get(item.answer_id); return <div className="surface-card interview-section" key={item.answer_id}><span className="pill teal">{q?.depth ? '追问' : '主问题'} {q?.main_number ?? ''}</span><h3>{q?.content ?? '已提交问题'}</h3><p className="interview-hint">你的回答：{q?.answer?.content ?? '未找到对应回答'}</p><p>{item.review}</p></div> })}</div>
+  return <div className="interview-stack"><div className="surface-card interview-section"><div className="section-kicker">INTERVIEW REVIEW</div><h2>{full ? '完整面试报告' : '部分文字复盘'}</h2><p>{report.summary}</p>{full && !report.summary.startsWith('【模拟复盘】') && typeof report.overall_score === 'number' && <div className="interview-score"><strong>{report.overall_score}</strong><span> / 100<br/>候选量表，尚待产品确认</span></div>}</div>
+    {report.items.map(item => { const q = byAnswer.get(item.answer_id); return <div className="surface-card interview-section" key={item.answer_id}><span className="pill teal">{q?.depth ? '追问' : '主问题'} {q?.main_number ?? ''}</span><h3>{q?.content ?? '已提交问题'}</h3><p className="interview-hint">你的回答：{q?.answer?.content ?? '未找到对应回答'}</p><p>{item.review}</p><TaskChoice interviewId={interviewId} answerId={item.answer_id} review={item.review}/></div> })}</div>
 }
 
 export function InterviewReportPage() {
@@ -162,6 +178,6 @@ function InterviewReport({ interviewId }: { interviewId: string }) {
   return <><div className="row-between"><Head title={full ? '面试报告' : '面试复盘'}>{label[detail.data.status]} · {full ? '完整报告' : '仅展示有效作答的文字复盘'}</Head><Link className={outline} to="/interviews">返回记录</Link></div><Notice error={report.error}/>{report.isPending && <div className="surface-card empty-state">正在读取报告...</div>}
     {report.data?.status === 'no_content' && <div className="surface-card empty-state">本场没有有效作答，暂无可复盘内容。</div>}
     {report.data?.status === 'not_requested' && <div className="surface-card interview-terminal"><Sparkles size={28}/><h2>报告尚未生成</h2><p>{full ? '基于已提交的回答生成完整报告。' : '只对实际有效回答生成文字复盘，不包含评分。'}</p><AIAction id={interviewId} kind="report" target={full ? 'full' : 'partial'} onComplete={() => void report.refetch()}/></div>}
-    {report.data?.status === 'ready' && report.data.result && <ReportBody report={report.data.result} full={full} questions={detail.data.questions}/>}
+    {report.data?.status === 'ready' && report.data.result && <ReportBody interviewId={interviewId} report={report.data.result} full={full} questions={detail.data.questions}/>}
   </>
 }

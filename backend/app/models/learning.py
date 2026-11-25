@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Float, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Float, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -36,3 +36,18 @@ class LearningProgress(Base):
     )
 
     topic: Mapped[Topic] = relationship(back_populates="progress")
+
+
+class LearningTask(Base):
+    __tablename__ = "learning_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    interview_id: Mapped[str] = mapped_column(ForeignKey("interviews.id", ondelete="RESTRICT"), nullable=False)
+    answer_id: Mapped[str] = mapped_column(ForeignKey("interview_answers.id", ondelete="RESTRICT"), nullable=False)
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id", ondelete="RESTRICT"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="todo")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("interview_id", "answer_id", "topic_id", name="uq_learning_task_source"),
+        CheckConstraint("status IN ('todo', 'in_progress', 'completed')", name="ck_learning_task_status"),
+    )
