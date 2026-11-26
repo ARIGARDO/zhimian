@@ -85,6 +85,8 @@ docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config
 
 Embedding 默认使用本地 CPU 的 `intfloat/multilingual-e5-small`（384 维），不需要云端 Embedding 密钥。首次运行 `docker compose run --rm backend python -m app.tools.index_knowledge` 会下载模型并建立索引；模型缓存存放于 Docker 卷 `embedding-cache`。切换模型后再次执行该命令，新模型使用独立身份，不混用旧向量。模型未下载、加载或推理失败时自动回退关键词检索。可选 `EMBEDDING_PROVIDER=openai` 和独立的 `EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_API_KEY` 使用兼容接口，可能产生费用。RRF 来源链接对应检索到的章节，不保证回答每项结论均被来源支持。
 
+千问等兼容模型如需关闭思考模式，可在 `.env` 设置 `MODEL_ENABLE_THINKING=false`；留空时不会发送该供应商参数。聊天请求仍由用户自己的供应商计费。
+
 配置真实供应商并确认费用后，显式构建索引：
 
 ```bash

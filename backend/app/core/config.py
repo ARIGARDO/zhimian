@@ -1,7 +1,7 @@
 from functools import lru_cache
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     model_ai_max_attempts: int = Field(default=3, ge=1, le=10)
     model_ai_max_output_tokens: int = Field(default=1024, ge=1, le=8192)
     model_ai_max_duration_seconds: int = Field(default=120, ge=10, le=900)
+
+    @field_validator('model_enable_thinking', mode='before')
+    @classmethod
+    def empty_thinking_is_unset(cls, value):
+        return None if value == '' else value
 
     @property
     def allowed_origins(self) -> list[str]:

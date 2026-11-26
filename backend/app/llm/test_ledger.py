@@ -87,11 +87,20 @@ def _validate(data, expected_limit, expected_batch=None):
             raise ValueError('验收操作列表无效')
         if expected_batch == 'm306b-3c' and (expected_limit != 3 or set(names) != {'ai2', 'ai1', 'formal_followup'}):
             raise ValueError('验收操作列表无效')
+        if expected_batch == 'real-mvp-3' and (expected_limit != 3 or set(names) != {'rag', 'followup', 'report'}):
+            raise ValueError('验收操作列表无效')
         bound = []
         for slot in slots:
             interview, kind, target = slot.get('interview_id'), slot.get('kind'), slot.get('target_id')
-            if kind not in ('report', 'followup') or (interview is None) != (target is None):
+            permitted = ('report', 'followup', 'chat') if expected_batch == 'real-mvp-3' else ('report', 'followup')
+            if kind not in permitted or (interview is None) != (target is None):
                 raise ValueError('验收操作绑定无效')
+            if expected_batch == 'real-mvp-3':
+                if (interview is None or target is None or
+                        (slot['slot'], kind) not in {('rag', 'chat'), ('followup', 'followup'), ('report', 'report')} or
+                        (slot['slot'] == 'rag' and target != 'rag') or
+                        (slot['slot'] == 'report' and target != 'full')):
+                    raise ValueError('验收操作绑定无效')
             if expected_batch == 'm306b-3c' and slot['slot'] == 'ai2' and (kind != 'report' or target != 'partial'):
                 raise ValueError('验收操作绑定无效')
             if expected_batch == 'm306b-3c' and slot['slot'] == 'ai1' and (kind != 'report' or target != 'full'):

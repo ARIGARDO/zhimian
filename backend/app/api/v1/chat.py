@@ -179,9 +179,16 @@ async def send_message(conversation_id: str, body: MessageCreate, db: Database, 
     async def generate():
         parts: list[str] = []
         status = "cancelled"
+        settings = get_settings()
+        scope_token = id_token = None
         try:
             yield event("start", {"id": reply.id, "user_id": user.id, "sources": sources})
-            async for chunk in stream_chat(get_settings(), messages):
+            if settings.model_acceptance_mode and settings.model_acceptance_batch_id == 'real-mvp-3':
+                from app.llm.test_ledger import operation_id, operation_scope
+                id_token = operation_id.set(str(reply.id))
+                scope_token = operation_scope.set((item.id, 'chat', 'rag'))
+            stream = stream_chat(settings, messages, max_tokens=1024) if scope_token is not None else stream_chat(settings, messages)
+            async for chunk in stream:
                 parts.append(chunk)
                 yield event("delta", {"content": chunk})
             status = "complete"
@@ -194,6 +201,9 @@ async def send_message(conversation_id: str, body: MessageCreate, db: Database, 
             status = "error"
             yield event("error", {"message": "生成回复时发生错误，请稍后重试"})
         finally:
+            if scope_token is not None:
+                operation_scope.reset(scope_token)
+                operation_id.reset(id_token)
             # 独立 session 保存部分回复，避免流中断时丢失内容。
             try:
                 with anyio.CancelScope(shield=True):
