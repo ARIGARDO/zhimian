@@ -1,6 +1,6 @@
 # 知面 · AI 学习与模拟面试
 
-知面是面向本地自部署的学习和面试练习项目。MVP 候选版支持专题阅读与进度、知识问答和历史会话、文字模拟面试与追问、完整报告或部分复盘，以及由用户确认的学习任务。任务完成不会自动标记知识掌握。
+知面是面向本地自部署的学习和面试练习项目。当前版本为 **Real MVP v0.1 候选版**，支持专题阅读与进度、知识问答和历史会话、文字模拟面试与追问、完整报告或部分复盘，以及由用户确认的学习任务。任务完成不会自动标记知识掌握。真实模型接口已在隔离环境联调；本轮浏览器展示尚待验收。
 
 技术栈：React、TypeScript、Vite、FastAPI、PostgreSQL、pgvector、Alembic，以及 OpenAI 兼容模型接口。单实例 BYOK，不提供注册或多用户隔离。
 
@@ -87,7 +87,7 @@ Embedding 默认使用本地 CPU 的 `intfloat/multilingual-e5-small`（384 维�
 
 千问等兼容模型如需关闭思考模式，可在 `.env` 设置 `MODEL_ENABLE_THINKING=false`；留空时不会发送该供应商参数。聊天请求仍由用户自己的供应商计费。
 
-配置真实供应商并确认费用后，显式构建索引：
+使用本地模型时，显式构建索引：
 
 ```bash
 docker compose run --rm backend python -m app.tools.index_knowledge
