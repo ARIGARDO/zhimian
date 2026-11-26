@@ -39,8 +39,12 @@ services:
       MODEL_AI_MAX_OUTPUT_TOKENS: ${MODEL_AI_MAX_OUTPUT_TOKENS:-1024}
       MODEL_AI_MAX_DURATION_SECONDS: ${MODEL_AI_MAX_DURATION_SECONDS:-120}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_CACHE_DIR: /var/cache/zhimian-embedding
+    volumes:
+      - embedding-cache:/var/cache/zhimian-embedding
     depends_on:
       init:
         condition: service_completed_successfully
@@ -66,3 +70,4 @@ services:
 
 volumes:
   pgdata:
+  embedding-cache:

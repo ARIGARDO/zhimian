@@ -43,8 +43,9 @@ async def model_configuration():
     settings = get_settings()
     return {
         'chat': model_configuration_status(settings.model_base_url, settings.model_name, settings.model_api_key),
-        'embedding': model_configuration_status(settings.embedding_base_url, settings.embedding_model, settings.embedding_api_key),
+        'embedding': ('configured' if settings.embedding_model == 'intfloat/multilingual-e5-small' else 'missing') if settings.embedding_provider == 'local' else model_configuration_status(settings.embedding_base_url, settings.embedding_model, settings.embedding_api_key),
         'embedding_dimensions': 384,
+        'embedding_provider': settings.embedding_provider,
     }
 
 

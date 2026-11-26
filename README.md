@@ -83,7 +83,7 @@ docker compose run --rm -v "$PWD/docs/interview:/materials:ro" -v "$HOME/.config
 
 ## Embedding 与知识引用
 
-Embedding 与聊天模型分别配置：`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_API_KEY`。接口需兼容 OpenAI `/embeddings` 并支持 **384 维**输出；响应维度和数值会校验。未配置、调用失败或索引为空时使用关键词检索。RRF 融合结果展示实际提供给模型的章节及链接；这不保证模型每项结论均被来源支持。
+Embedding 默认使用本地 CPU 的 `intfloat/multilingual-e5-small`（384 维），不需要云端 Embedding 密钥。首次运行 `docker compose run --rm backend python -m app.tools.index_knowledge` 会下载模型并建立索引；模型缓存存放于 Docker 卷 `embedding-cache`。切换模型后再次执行该命令，新模型使用独立身份，不混用旧向量。模型未下载、加载或推理失败时自动回退关键词检索。可选 `EMBEDDING_PROVIDER=openai` 和独立的 `EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_API_KEY` 使用兼容接口，可能产生费用。RRF 来源链接对应检索到的章节，不保证回答每项结论均被来源支持。
 
 配置真实供应商并确认费用后，显式构建索引：
 
@@ -91,7 +91,7 @@ Embedding 与聊天模型分别配置：`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`
 docker compose run --rm backend python -m app.tools.index_knowledge
 ```
 
-该命令会调用 Embedding 服务，可能产生费用；文章更新或切换供应商、模型后需重新索引。旧版以模型名标识的索引也需执行一次重建；旧数据不会被直接删除，未重建期间会回退关键词检索。同一供应商在不改变模型名时更新模型，需在索引命令后添加 `--force`，并在逐条重建期间暂停问答，避免混用不同版本的向量。演示模式只调用容器内模拟服务。不要将模拟向量当作真实语义检索质量验证。
+本地模式首次执行会下载模型，远程模式则可能产生供应商费用。文章更新或切换供应商、模型后需重新索引；未重建期间回退关键词检索。同一模型名称下的权重更新需添加 `--force`，并在逐条重建期间暂停问答，避免混用不同版本的向量。演示模式只调用容器内模拟服务；模拟向量不能验证真实语义检索质量。
 
 ## 测试与已知限制
 

@@ -41,9 +41,9 @@ async def retrieve(db: AsyncSession, query: str, topic_id: str | None) -> list[d
     lexical = [id_ for score, id_ in sorted(lexical, key=lambda row: -row[0]) if score]
     vector = []
     settings = get_settings()
-    if db.bind.dialect.name == 'postgresql' and settings.embedding_model and settings.embedding_base_url:
+    if db.bind.dialect.name == 'postgresql' and settings.embedding_model:
         try:
-            query_vector = (await embed([query]))[0]
+            query_vector = (await embed([query], purpose='query'))[0]
             distance = KnowledgeChunk.embedding.cosine_distance(query_vector)
             stmt = select(KnowledgeChunk.id, distance.label('distance')).where(KnowledgeChunk.model == embedding_index_key(settings))
             if topic_id:

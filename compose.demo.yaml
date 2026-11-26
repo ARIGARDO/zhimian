@@ -19,6 +19,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://zhimian_demo:demo-only@demo-db:5432/zhimian_demo
       ZHIMIAN_DEMO_ONLY: 'true'
+      EMBEDDING_PROVIDER: openai
       EMBEDDING_BASE_URL: http://model:8001/v1
       EMBEDDING_MODEL: demo-hash-384
       EMBEDDING_API_KEY: local-demo
@@ -40,6 +41,7 @@ services:
       MODEL_BASE_URL: http://model:8001/v1
       MODEL_NAME: local-demo
       MODEL_API_KEY: local-demo
+      EMBEDDING_PROVIDER: openai
       EMBEDDING_BASE_URL: http://model:8001/v1
       EMBEDDING_MODEL: demo-hash-384
       EMBEDDING_API_KEY: local-demo

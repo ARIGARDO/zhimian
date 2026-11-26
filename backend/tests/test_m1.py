@@ -16,12 +16,12 @@ def test_health_without_database() -> None:
 
 
 def test_configuration_status_never_exposes_credentials(monkeypatch):
-    settings = Settings(_env_file=None, model_base_url='https://example.com/v1', model_name='demo', model_api_key='private-test-key', embedding_base_url='invalid://bad', embedding_model='embedding', embedding_api_key='secret-test-key')
+    settings = Settings(_env_file=None, model_base_url='https://example.com/v1', model_name='demo', model_api_key='private-test-key', embedding_provider='openai', embedding_base_url='invalid://bad', embedding_model='embedding', embedding_api_key='secret-test-key')
     monkeypatch.setattr('app.main.get_settings', lambda: settings)
     with TestClient(app) as client:
         result = client.get('/api/v1/model/configuration')
     assert result.status_code == 200
-    assert result.json() == {'chat': 'configured', 'embedding': 'invalid_url', 'embedding_dimensions': 384}
+    assert result.json() == {'chat': 'configured', 'embedding': 'invalid_url', 'embedding_dimensions': 384, 'embedding_provider': 'openai'}
     assert 'private-test-key' not in result.text and 'secret-test-key' not in result.text
     assert model_configuration_status('', '', settings.model_api_key) == 'missing'
 

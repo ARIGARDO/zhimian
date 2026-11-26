@@ -17,7 +17,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export type ModelConfiguration = { chat: 'configured' | 'missing' | 'invalid_url'; embedding: 'configured' | 'missing' | 'invalid_url'; embedding_dimensions: number }
+export type ModelConfiguration = { chat: 'configured' | 'missing' | 'invalid_url'; embedding: 'configured' | 'missing' | 'invalid_url'; embedding_dimensions: number; embedding_provider: string }
 
 export type LearningTask = { id: string; interview_id: string; answer_id: string; topic_id: string; topic_title: string; status: 'todo' | 'in_progress' | 'completed'; created_at: string }
 

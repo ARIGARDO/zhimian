@@ -1,4 +1,4 @@
-"""显式构建向量索引。运行会调用配置的 embedding 服务，可能产生费用。"""
+"""显式构建向量索引；本地模型首次运行需下载，远程服务可能产生费用。"""
 import asyncio
 import argparse
 from sqlalchemy import select
@@ -13,7 +13,7 @@ from app.services.retrieval import topic_chunks
 
 async def main(force: bool = False):
     settings = get_settings()
-    if not settings.embedding_model or not settings.embedding_base_url:
+    if not settings.embedding_model or (settings.embedding_provider == 'openai' and not settings.embedding_base_url):
         raise RuntimeError('请先配置 embedding 服务；本命令可能产生模型调用费用')
     factory = get_session_factory()
     index_key = embedding_index_key(settings)
@@ -23,7 +23,7 @@ async def main(force: bool = False):
         existing = set((await db.scalars(select(KnowledgeChunk.id).where(KnowledgeChunk.model == index_key))).all())
     pending = [chunk for chunk in chunks if force or chunk['id'] not in existing]
     for chunk in pending:
-        vector = (await embed([chunk['excerpt']]))[0]
+        vector = (await embed([chunk['excerpt']], purpose='passage', allow_download=True))[0]
         async with factory() as db:
             stmt = insert(KnowledgeChunk).values(id=chunk['id'], topic_id=chunk['topic_id'], section=chunk['section'], excerpt=chunk['excerpt'], model=index_key, embedding=vector)
             stmt = stmt.on_conflict_do_update(index_elements=['id'], set_={'model': index_key, 'embedding': vector})
